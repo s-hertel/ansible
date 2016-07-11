@@ -23,8 +23,12 @@ from ansible.compat.six import PY3
 from ansible.compat.tests import unittest
 
 from nose.plugins.skip import SkipTest
+import ansible
 import os
 import getpass
+
+from mock import patch, call
+from ansible.errors import AnsibleError
 
 if PY3:
     raise SkipTest('galaxy is not ported to be py3 compatible yet')
@@ -70,3 +74,109 @@ class TestGalaxy(unittest.TestCase):
         display_result = gc._display_role_info(role_info)
         if display_result.find('\t\tgalaxy_tags:') > -1:
             self.fail('Expected galaxy_tags to be indented twice')
+
+    @patch.object(ansible.utils.display.Display, "display")  # eliminating messages flushed to screen
+    def test_execute_import(self, mocked_display):
+        # regardless of internet or credentials, always runs mocked-out tests to ensure correct functions are called
+        # testing case when sufficient info is not provided
+        gc = GalaxyCLI(args=["import"])
+        with patch('sys.argv', ["-c", "username"]):
+            galaxy_parser = gc.parse()
+        super(GalaxyCLI, gc).run()
+        gc.api = ansible.galaxy.api.GalaxyAPI(gc.galaxy)
+        self.assertRaises(AnsibleError, gc.execute_import)
+
+        # testing case when gc.options.check_status == False
+        gc = GalaxyCLI(args=["import"])
+        with patch('sys.argv', ["-c", "username", "password"]):
+            galaxy_parser = gc.parse()
+        with patch.object(ansible.galaxy.api.GalaxyAPI, "create_import_task") as mock_create_import:
+            with patch.object(ansible.galaxy.api.GalaxyAPI, "get_import_task") as mock_get_import:
+                mock_get_import.side_effect = [
+                                                [{'summary_fields':{'task_messages':[]}, 'state':'SUCCESS'}]
+                                                ]
+                super(GalaxyCLI, gc).run()
+                gc.api = ansible.galaxy.api.GalaxyAPI(gc.galaxy)
+                completed = gc.execute_import()
+                self.assertTrue(completed == 0)
+                mock_create_import.assert_called_once_with('username', 'password', reference=None)
+        
+        # testing case when gc.option.check_status == True
+        gc = GalaxyCLI(args=["import"])
+        with patch('sys.argv', ["-c", "username", "password"]):
+            galaxy_parser = gc.parse()
+        gc.options.check_status = True
+        with patch.object(ansible.galaxy.api.GalaxyAPI, "get_import_task") as mock_get_import:
+            mock_get_import.side_effect = [
+                                            [{'id':'ID'}],
+                                            [{'summary_fields':{'task_messages':[]}, 'state':'SUCCESS'}]
+                                            ]                                
+            super(GalaxyCLI, gc).run()
+            gc.api = ansible.galaxy.api.GalaxyAPI(gc.galaxy)
+            completed = gc.execute_import()
+            self.assertTrue(completed == 0)
+            mock_get_import.assert_called_with(task_id='ID')
+
+        # This test requires internet connection. Using try/except to ensure internet is working rather than fail tests requiring connection while offline.
+        try:
+            # import tests require credentials
+            if self.auth:
+                logged_in = False
+
+                ### setting up - trying to login; required to test import ###
+                gc = GalaxyCLI(args=["login"])
+                if self.galaxy_username and self.galaxy_password:
+                    with patch('sys.argv', ["-c", self.galaxy_username, self.galaxy_password]):
+                        galaxy_parser = gc.parse()
+                    # patching because we only ask once for authentication
+                    with patch('__builtin__.raw_input', return_value= self.galaxy_username):
+                        with patch('getpass.getpass', return_value=self.galaxy_password):
+                            gc.run()
+                            logged_in = True
+                elif self.github_token:
+                    with patch('sys.argv', ["-c", "--github-token", self.github_token]):
+                        galaxy_parser = gc.parse()
+                    gc.run()
+                    logged_in = True
+
+                ### running tests if setup was successful ###
+                if logged_in:
+                    # testing with correct arguments if possible
+                    if self.galaxy_username and self.import_repo:  # tests fail if invalid credentials are provided by the tester
+
+                        # testing when gc.options.check_status == False and gc.options.wait == True
+                        gc.args = ["import"]
+                        with patch('sys.argv', ["-c", self.galaxy_username, self.import_repo]):
+                            galaxy_parser = gc.parse()
+                        super(GalaxyCLI, gc).run()
+                        gc.api = ansible.galaxy.api.GalaxyAPI(gc.galaxy)
+                        completed = gc.execute_import()
+                        self.assertTrue(completed==0)
+    
+                        # testing when gc.options.check_status == False and gc.options.wait == False
+                        gc.args = ["import"]
+                        with patch('sys.argv', ["-c", self.galaxy_username, self.import_repo]):
+                            galaxy_parser = gc.parse()
+                        gc.options.wait = False
+                        super(GalaxyCLI, gc).run()
+                        gc.api = ansible.galaxy.api.GalaxyAPI(gc.galaxy)
+                        completed = gc.execute_import()
+                        self.assertTrue(completed==0)
+
+                        # testing when gc.options.check_status == True
+                        gc.args = ["import"]
+                        with patch('sys.argv', ["-c", self.galaxy_username, self.import_repo]):
+                            galaxy_parser = gc.parse()
+                        gc.options.check_status = True
+                        super(GalaxyCLI, gc).run()
+                        gc.api = ansible.galaxy.api.GalaxyAPI(gc.galaxy)
+                        completed = gc.execute_import()
+                        self.assertTrue(completed==0)
+
+        except (SSLValidationError, AnsibleError) as e:
+            if str(e) == "Bad credentials":
+                raise
+            elif "Failed to get data from the API server" or "Failed to validate the SSL certificate" in e.message:
+                raise SkipTest(' there is a test case within this method that requires an internet connection and a valid CA certificate installed; this part of the method is skipped when one or both of these requirements are not provided\n ... ok ')
+            else:
+                raise
