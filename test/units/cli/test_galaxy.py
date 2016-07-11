@@ -28,7 +28,7 @@ import os
 import shutil
 import tarfile
 
-from mock import patch
+from mock import patch, MagicMock
 
 if PY3:
     raise SkipTest('galaxy is not ported to be py3 compatible yet')
@@ -107,6 +107,16 @@ class TestGalaxy(unittest.TestCase):
         display_result = gc._display_role_info(role_info)
         if display_result.find('\t\tgalaxy_tags:') > -1:
             self.fail('Expected galaxy_tags to be indented twice')
+
+    def test_run(self):
+        ''' verifies that the GalaxyCLI object's api is created and that execute() is called. '''
+        gc = GalaxyCLI(args=["install"])
+        with patch('sys.argv', ["-c", "-v", '--ignore-errors', 'foo']):
+            galaxy_parser = gc.parse()
+        gc.execute = MagicMock()
+        gc.run()
+        self.assertTrue(gc.execute.called)
+        self.assertTrue(isinstance(gc.api, ansible.galaxy.api.GalaxyAPI))
 
     def test_execute_remove(self):
         # installing role
