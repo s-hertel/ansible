@@ -30,6 +30,10 @@ import tarfile
 import tempfile
 
 from mock import patch, call
+<<<<<<< HEAD
+=======
+
+>>>>>>> fded3deba64a0cd0e43d2a40cb90a37261b8d57c
 from ansible.errors import AnsibleError
 
 if PY3:
@@ -198,7 +202,11 @@ class TestGalaxy(unittest.TestCase):
         with patch.object(ansible.galaxy.api.GalaxyAPI, "get_import_task", side_effect=get_import_task_side_effects) as mocked_get_import_task:
             completed = gc.execute_import()
 
+<<<<<<< HEAD
             # tests 
+=======
+            # tests
+>>>>>>> fded3deba64a0cd0e43d2a40cb90a37261b8d57c
             self.assertTrue(completed==0)
             self.assertEqual(mocked_get_import_task.call_count, 2)
             calls = [call(github_repo='repo', github_user='username'), call(task_id=1)]
