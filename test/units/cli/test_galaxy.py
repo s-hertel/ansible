@@ -198,7 +198,7 @@ class TestGalaxy(unittest.TestCase):
         with patch.object(ansible.galaxy.api.GalaxyAPI, "get_import_task", side_effect=get_import_task_side_effects) as mocked_get_import_task:
             completed = gc.execute_import()
 
-            # tests
+            # tests 
             self.assertTrue(completed==0)
             self.assertEqual(mocked_get_import_task.call_count, 2)
             calls = [call(github_repo='repo', github_user='username'), call(task_id=1)]
