@@ -172,25 +172,21 @@ class TestGalaxy(unittest.TestCase):
                 self.assertTrue(galaxy_parser)
                 self.assertTrue(isinstance(galaxycli_obj.parser, ansible.cli.SortedOptParser))
                 self.assertTrue(isinstance(galaxycli_obj.galaxy, ansible.galaxy.Galaxy))
-                if action in ['import', 'delete']:
-                    formatted_call = 'usage: %prog ' + action + ' [options] github_user github_repo'
-                elif action == 'info':
-                    formatted_call = 'usage: %prog ' + action + ' [options] role_name[,version]'
-                elif action == 'init':
-                    formatted_call = 'usage: %prog ' + action + ' [options] role_name'
-                elif action == 'install':
-                    formatted_call = 'usage: %prog ' + action + ' [options] [-r FILE | role_name(s)[,version] | scm+role_repo_url[,version] | tar_file(s)]'
-                elif action == 'list':
-                    formatted_call = 'usage: %prog ' + action + ' [role_name]'
-                elif action == 'login':
-                    formatted_call = 'usage: %prog ' + action + ' [options]'
-                elif action == 'remove':
-                    formatted_call = 'usage: %prog ' + action + ' role1 role2 ...'
-                elif action == 'search':
-                    formatted_call = 'usage: %prog ' + action + ' [searchterm1 searchterm2] [--galaxy-tags galaxy_tag1,galaxy_tag2] [--platforms platform1,platform2] [--author username]'
-                elif action == 'setup':
-                    formatted_call = 'usage: %prog ' + action + ' [options] source github_user github_repo secret'
-                calls = [call('usage: %prog [delete|import|info|init|install|list|login|remove|search|setup] [--help] [options] ...'), call(formatted_call)]
+
+                calls_dict = {
+                                'import': 'usage: %prog ' + action + ' [options] github_user github_repo',
+                                'delete': 'usage: %prog ' + action + ' [options] github_user github_repo',
+                                'info': 'usage: %prog ' + action + ' [options] role_name[,version]',
+                                'init': 'usage: %prog ' + action + ' [options] role_name',
+                                'install': 'usage: %prog ' + action + ' [options] [-r FILE | role_name(s)[,version] | scm+role_repo_url[,version] | tar_file(s)]',
+                                'list': 'usage: %prog ' + action + ' [role_name]',
+                                'login': 'usage: %prog ' + action + ' [options]',
+                                'remove': 'usage: %prog ' + action + ' role1 role2 ...',
+                                'search': 'usage: %prog ' + action + ' [searchterm1 searchterm2] [--galaxy-tags galaxy_tag1,galaxy_tag2] [--platforms platform1,platform2] [--author username]',
+                                'setup': 'usage: %prog ' + action + ' [options] source github_user github_repo secret'
+                             }
+
+                calls = [call('usage: %prog [delete|import|info|init|install|list|login|remove|search|setup] [--help] [options] ...'), call(calls_dict[action])]
                 mocked_usage.assert_has_calls(calls)
         
     def test_parse(self):
