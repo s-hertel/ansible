@@ -29,7 +29,7 @@ from nose.plugins.skip import SkipTest
 
 from ansible.compat.six import PY3
 from ansible.compat.tests import unittest
-from mock import patch, call
+from ansible.compat.tests.mock import patch, call
 
 import ansible
 from ansible.errors import AnsibleError, AnsibleOptionsError
