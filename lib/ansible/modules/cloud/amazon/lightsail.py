@@ -347,20 +347,20 @@ def core(module):
         client = boto3_conn(module, conn_type='client', resource='lightsail',
                             region=region, endpoint=ec2_url, **aws_connect_kwargs)
     except (botocore.exceptions.ClientError, botocore.exceptions.ValidationError) as e:
-        module.fail_json(msg=str(e))
+        module.fail_json('Failed while connecting to the lightsail service: %s' % e, exception=traceback.format_exc())
 
     changed = False
     state = module.params['state']
     name = module.params['name']
 
     if state == 'absent':
-        (changed, instance_dict) = delete_instance(module, client, name)
+        changed, instance_dict = delete_instance(module, client, name)
     elif state in ('running', 'stopped'):
-        (changed, instance_dict) = startstop_instance(module, client, name, state)
+        changed, instance_dict = startstop_instance(module, client, name, state)
     elif state == 'restarted':
-        (changed, instance_dict) = restart_instance(module, client, name)
+        changed, instance_dict = restart_instance(module, client, name)
     elif state == 'present':
-        (changed, instance_dict) = create_instance(module, client, name)
+        changed, instance_dict = create_instance(module, client, name)
 
     module.exit_json(changed=changed, instance=instance_dict)
 
@@ -369,7 +369,8 @@ def find_instance_info(client, instance_name):
     try:
         inst = client.get_instance(instanceName=instance_name)
     except botocore.exceptions.ClientError as e:
-        raise
+        if 'not found' in e.message or inst is None:
+            raise
     return inst['instance']
 
 def main():
@@ -388,11 +389,11 @@ def main():
 
     module = AnsibleModule(argument_spec=argument_spec)
 
-    if not HAS_BOTOCORE:
-        module.fail_json(msg='Python module "botocore" is missing, please install it')
-
     if not HAS_BOTO3:
         module.fail_json(msg='Python module "boto3" is missing, please install it')
+
+    if not HAS_BOTOCORE:
+        module.fail_json(msg='Python module "botocore" is missing, please install it')
 
     try:
         core(module)
