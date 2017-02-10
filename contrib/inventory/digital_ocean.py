@@ -138,7 +138,7 @@ import sys
 import re
 import argparse
 from time import time
-import ConfigParser
+from ansible.compat.six.moves import configparser
 import ast
 
 try:
@@ -247,7 +247,7 @@ or environment variables (DO_API_TOKEN)\n''')
 
     def read_settings(self):
         ''' Reads the settings from the digital_ocean.ini file '''
-        config = ConfigParser.SafeConfigParser()
+        config = configparser.SafeConfigParser()
         config.read(os.path.dirname(os.path.realpath(__file__)) + '/digital_ocean.ini')
 
         # Credentials
