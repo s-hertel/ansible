@@ -261,104 +261,121 @@ import os
 import traceback
 from ansible.module_utils.six.moves.urllib.parse import urlparse
 from ssl import SSLError
+from ansible.module_utils.basic import AnsibleModule, to_text
+from ansible.module_utils.ec2 import ec2_argument_spec, get_aws_connection_info, boto3_conn
 
 try:
-    import boto
-    import boto.ec2
-    from boto.s3.connection import Location
-    from boto.s3.connection import OrdinaryCallingFormat
-    from boto.s3.connection import S3Connection
-    from boto.s3.acl import CannedACLStrings
-    HAS_BOTO = True
+    import boto3
+    import botocore
+    HAS_BOTO3 = True
 except ImportError:
-    HAS_BOTO = False
+    HAS_BOTO3 = False
 
-def key_check(module, s3, bucket, obj, version=None, validate=True):
+def key_check(module, s3, bucket, obj, version=None):
+    exists = True
     try:
-        bucket = s3.lookup(bucket, validate=validate)
-        key_check = bucket.get_key(obj, version_id=version)
-    except s3.provider.storage_response_error as e:
-        if version is not None and e.status == 400: # If a specified version doesn't exist a 400 is returned.
-            key_check = None
+        if version:
+            s3.head_object(Bucket=bucket, Key=obj, VersionId=verion)
         else:
-            module.fail_json(msg=str(e))
-    if key_check:
-        return True
-    else:
-        return False
+            s3.head_object(Bucket=bucket, Key=obj)
+    except botocore.exceptions.ClientError as e:
+        # if a client error is thrown, check if it's a 404 error
+        # if it's a 404 error, then the object does not exist
+        error_code = int(e.response['Error']['Code'])
+        if error_code == 404:
+            exists = False
+        else:
+            module.fail_json(msg="Failed while looking up object (during key check) %s: %s" % (object, e), exception=traceback.format_exc())
+    return exists
 
-def keysum(module, s3, bucket, obj, version=None, validate=True):
-    bucket = s3.lookup(bucket, validate=validate)
-    key_check = bucket.get_key(obj, version_id=version)
+def keysum(module, s3, bucket, obj, version=None):  # previously also took validate=True
+    if version:
+        key_check = s3.get_object(Bucket=bucket, Key=obj, VersionId=version)
+    else:
+        key_check = s3.get_object(Bucket=bucket, Key=obj)
     if not key_check:
         return None
-    md5_remote = key_check.etag[1:-1]
+    md5_remote = key_check['ETag'][1:-1]   # previously: bucket = s3.lookup(bucket, validate=validate); key_check = bucket.get_key(obj, version_id=version); md5_remote = key_check.etag[1:-1]
     etag_multipart = '-' in md5_remote # Check for multipart, etag is not md5
     if etag_multipart is True:
         module.fail_json(msg="Files uploaded with multipart of s3 are not supported with checksum, unable to compute checksum.")
     return md5_remote
 
-def bucket_check(module, s3, bucket, validate=True):
+def bucket_check(module, s3, bucket):
+    exists = True
     try:
-        result = s3.lookup(bucket, validate=validate)
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg="Failed while looking up bucket (during bucket_check) %s: %s" % (bucket, e),
-                exception=traceback.format_exc())
-    return bool(result)
+        s3.head_bucket(Bucket=bucket)
+    except botocore.exceptions.ClientError as e:
+        # If a client error is thrown, then check that it was a 404 error.
+        # If it was a 404 error, then the bucket does not exist.
+        error_code = int(e.response['Error']['Code'])
+        if error_code == 404:
+            exists = False
+        else:
+            module.fail_json(msg="Failed while looking up bucket (during bucket_check) %s: %s" % (bucket, e), exception=traceback.format_exc())
+    return exists
 
 def create_bucket(module, s3, bucket, location=None):
-    if location is None:
-        location = Location.DEFAULT
+    configuration = {}
+    if location != ('us-east-1' or None):
+        configuration['LocationConstraint'] = location
     try:
-        bucket = s3.create_bucket(bucket, location=location)
+        if len(configuration) > 0:
+            s3.create_bucket(Bucket=bucket, CreateBucketConfiguration=configuration)
+        else:
+            s3.create_bucket(Bucket=bucket)
         for acl in module.params.get('permission'):
-            bucket.set_acl(acl)
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg="Failed while creating bucket or setting acl (check that you have CreateBucket and PutBucketAcl permission) %s: %s" % (bucket, e),
-                exception=traceback.format_exc())
+            s3.put_bucket_acl(ACL=acl, Bucket=bucket)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Failed while creating bucket or setting acl (check that you have CreateBucket and PutBucketAcl permission).", exception=traceback.format_exc())
+
     if bucket:
         return True
 
 def get_bucket(module, s3, bucket):
     try:
-        return s3.lookup(bucket)
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg="Failed while getting bucket %s: %s" % (bucket, e),
-                exception=traceback.format_exc())
+        return s3.get_bucket(Bucket=bucket)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Failed while getting bucket %s." % bucket, exception=traceback.format_exc())
 
-def list_keys(module, bucket_object, prefix, marker, max_keys):
-    all_keys = bucket_object.get_all_keys(prefix=prefix, marker=marker, max_keys=max_keys)
+def list_keys(module, s3, bucket, prefix, marker, max_keys):
+    all_keys = s3.list_objects(Bucket=bucket, Prefix=prefix, Marker=marker, MaxKeys=max_keys)
 
-    keys = [x.key for x in all_keys]
+    if 'Contents' in all_keys:
+        keys = [x['Key'] for x in all_keys['Contents']]
 
     module.exit_json(msg="LIST operation complete", s3_keys=keys)
 
 def delete_bucket(module, s3, bucket):
     try:
-        bucket = s3.lookup(bucket)
-        bucket_contents = bucket.list()
-        bucket.delete_keys([key.name for key in bucket_contents])
-        bucket.delete()
+        exists = bucket_check(module, s3, bucket)
+        if exists is False:
+            return False
+        objects = s3.list_objects(Bucket=bucket)
+        # if there are contents then we need to delete them before we can delete the bucket
+        if 'Contents' in objects:
+            keys = [{'Key': data['Key']} for data in objects['Contents']]
+            s3.delete_objects(Bucket=bucket, Delete={'Objects':keys})
+        s3.delete_bucket(Bucket=bucket)
         return True
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg= str(e))
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Failed while deleting bucket %s." % bucket, exception=traceback.format_exc())
 
-def delete_key(module, s3, bucket, obj, validate=True):
+def delete_key(module, s3, bucket, obj):
     try:
-        bucket = s3.lookup(bucket, validate=validate)
-        bucket.delete_key(obj)
-        module.exit_json(msg="Object deleted from bucket %s"%bucket, changed=True)
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg= str(e))
+        s3.delete_object(Bucket=bucket, Key=obj)
+        module.exit_json(msg="Object %s deleted from bucket %s." % (obj, bucket), changed=True)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Failed during while trying to delete %s." % obj, exception=traceback.format_exc())
 
-def create_dirkey(module, s3, bucket, obj, validate=True):
+def create_dirkey(module, s3, bucket, obj):
     try:
-        bucket = s3.lookup(bucket, validate=validate)
+        bucket = s3.Bucket(bucket)
         key = bucket.new_key(obj)
         key.set_contents_from_string('')
         module.exit_json(msg="Virtual directory %s created in bucket %s" % (obj, bucket.name), changed=True)
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg= str(e))
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Failed while creating object %s." % obj, exception=traceback.format_exc(e))
 
 def path_check(path):
     if os.path.exists(path):
@@ -366,34 +383,43 @@ def path_check(path):
     else:
         return False
 
-
-def upload_s3file(module, s3, bucket, obj, src, expiry, metadata, encrypt, headers, validate=True):
+def upload_s3file(module, s3, bucket, obj, src, expiry, metadata, encrypt, headers):
     try:
-        bucket = s3.lookup(bucket, validate=validate)
-        key = bucket.new_key(obj)
+        metadata = {"new_key": "new_value"}
         if metadata:
-            for meta_key in metadata.keys():
-                key.set_metadata(meta_key, metadata[meta_key])
-
-        key.set_contents_from_filename(src, encrypt_key=encrypt, headers=headers)
+            extra = {'Metadata':{}}
+            for meta_key in metadata:
+                extra['Metadata'][meta_key] = metadata[meta_key]
+            s3.upload_file(Filename=src, Bucket=bucket, Key=obj, ExtraArgs=extra)
+        else:
+            s3.upload_file(Filename=src, Bucket=bucket, Key=obj)
         for acl in module.params.get('permission'):
-            key.set_acl(acl)
-        url = key.generate_url(expiry)
+            s3.put_object_acl(ACL=acl, Bucket=bucket, Key=obj)
+        url = url = s3.generate_presigned_url(ClientMethod='put_object',
+                                              Params={'Bucket': bucket,'Key': obj},
+                                              ExpiresIn=expiry)
         module.exit_json(msg="PUT operation complete", url=url, changed=True)
-    except s3.provider.storage_copy_error as e:
-        module.fail_json(msg= str(e))
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Unable to complete PUT operation", exception=traceback.format_exc())
 
-def download_s3file(module, s3, bucket, obj, dest, retries, version=None, validate=True):
+def download_s3file(module, s3, bucket, obj, dest, retries, version=None):
     # retries is the number of loops; range/xrange needs to be one
     # more to get that count of loops.
-    bucket = s3.lookup(bucket, validate=validate)
-    key = bucket.get_key(obj, version_id=version)
+    try:
+        if version:
+            key = s3.get_object(Bucket=bucket, Key=obj, VersionId=version)
+        else:
+            key = s3.get_object(Bucket=bucket, Key=obj)
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] != "404":
+            module.fail_json(msg="Could not find the key.", exception=text_type(traceback.format_exc()))
+
     for x in range(0, retries + 1):
         try:
-            key.get_contents_to_filename(dest)
+            s3.download_file(bucket, obj, dest)
             module.exit_json(msg="GET operation complete", changed=True)
-        except s3.provider.storage_copy_error as e:
-            module.fail_json(msg= str(e))
+        except botocore.exceptions.ClientError as e:
+            module.fail_json(msg="Failed while downloading %s." % obj, exception=traceback.format_exc())
         except SSLError as e:
             # actually fail on last pass through the loop.
             if x >= retries:
@@ -403,21 +429,22 @@ def download_s3file(module, s3, bucket, obj, dest, retries, version=None, valida
 
 def download_s3str(module, s3, bucket, obj, version=None, validate=True):
     try:
-        bucket = s3.lookup(bucket, validate=validate)
-        key = bucket.get_key(obj, version_id=version)
-        contents = key.get_contents_as_string()
+        if version:
+            contents = to_text(s3.get_object(Bucket=bucket, Key=obj, VersionId=version)["Body"].read())
+        else:
+            contents = to_text(s3.get_object(Bucket=bucket, Key=obj)["Body"].read())
         module.exit_json(msg="GET operation complete", contents=contents, changed=True)
-    except s3.provider.storage_copy_error as e:
-        module.fail_json(msg= str(e))
+    except botocore.exceptions.ClientError as e:
+        module.fail_json(msg="Failed while getting contents of object %s as a string." % obj, exception=traceback.format_exc())
 
-def get_download_url(module, s3, bucket, obj, expiry, changed=True, validate=True):
+def get_download_url(module, s3, bucket, obj, expiry, changed=True):
     try:
-        bucket = s3.lookup(bucket, validate=validate)
-        key = bucket.lookup(obj)
-        url = key.generate_url(expiry)
+        url = s3.generate_presigned_url(ClientMethod='get_object',
+                                        Params={'Bucket': bucket,'Key': obj},
+                                        ExpiresIn=expiry)
         module.exit_json(msg="Download url:", url=url, expiry=expiry, changed=changed)
-    except s3.provider.storage_response_error as e:
-        module.fail_json(msg= str(e))
+    except botocore.exceptions.ClientError as e:    
+        module.fail_json(msg="Failed while getting download url.", exception=traceback.format_exc())
 
 def is_fakes3(s3_url):
     """ Return True if s3_url has scheme fakes3:// """
@@ -488,8 +515,11 @@ def main():
     if dest:
         dest = os.path.expanduser(dest)
 
+    
+    CannedACLStrings = ['private', 'public-read', 'public-read-write', 'aws-exec-read', 'authenticated-read', 'bucket-owner-read', 'bucket-owner-full-control', 'log-delivery-write']  # FIXME - find where to import CannedACLStrings from instead of defining here
     for acl in module.params.get('permission'):
         if acl not in CannedACLStrings:
+            # uncertain that this is the right; according to the documentation, only one canned acl may be specified. But I think it's permitted to specify multiple ACL permissions (such as READ, FULL_CONTROL, WRITE_TAG, etc). FIXME
             module.fail_json(msg='Unknown permission specified: %s' % str(acl))
 
     if overwrite not in ['always', 'never', 'different']:
@@ -502,7 +532,9 @@ def main():
 
     if region in ('us-east-1', '', None):
         # S3ism for the US Standard region
-        location = Location.DEFAULT
+        # need to find where to import Location.DEFAULT from
+        location = 'us-east-1'
+        #location = Location.DEFAULT
     else:
         # Boto uses symbolic names for locations but region strings will
         # actually work fine for everything except us-east-1 (US Standard)
@@ -527,9 +559,11 @@ def main():
 
     # Look at s3_url and tweak connection settings
     # if connecting to RGW, Walrus or fakes3
+    for key in ['validate_certs', 'security_token', 'profile_name']:
+        aws_connect_kwargs.pop(key, None)
     try:
-        s3 = get_s3_connection(aws_connect_kwargs, location, rgw, s3_url)
-
+        s3 = boto3_conn(module, conn_type='client', resource='s3', region=region, endpoint=ec2_url, **aws_connect_kwargs)
+        #s3 = get_s3_connection(aws_connect_kwargs, location, rgw, s3_url)  # FIXME - this function needs work
     except boto.exception.NoAuthHandlerFound as e:
         module.fail_json(msg='No Authentication Handler found: %s ' % str(e))
     except Exception as e:
@@ -551,7 +585,7 @@ def main():
     # If our mode is a GET operation (download), go through the procedure as appropriate ...
     if mode == 'get':
         # Next, we check to see if the key in the bucket exists. If it exists, it also returns key_matches md5sum check.
-        keyrtn = key_check(module, s3, bucket, obj, version=version, validate=validate)
+        keyrtn = key_check(module, s3, bucket, obj, version=version)
         if keyrtn is False:
             if version is not None:
                 module.fail_json(msg="Key %s with version id %s does not exist."% (obj, version))
@@ -563,23 +597,23 @@ def main():
 
         # Compare the remote MD5 sum of the object with the local dest md5sum, if it already exists.
         if pathrtn is True:
-            md5_remote = keysum(module, s3, bucket, obj, version=version, validate=validate)
+            md5_remote = keysum(module, s3, bucket, obj, version=version)
             md5_local = module.md5(dest)
             if md5_local == md5_remote:
                 sum_matches = True
                 if overwrite == 'always':
-                    download_s3file(module, s3, bucket, obj, dest, retries, version=version, validate=validate)
+                    download_s3file(module, s3, bucket, obj, dest, retries, version=version)
                 else:
                     module.exit_json(msg="Local and remote object are identical, ignoring. Use overwrite=always parameter to force.", changed=False)
             else:
                 sum_matches = False
 
                 if overwrite in ('always', 'different'):
-                    download_s3file(module, s3, bucket, obj, dest, retries, version=version, validate=validate)
+                    download_s3file(module, s3, bucket, obj, dest, retries, version=version)
                 else:
                     module.exit_json(msg="WARNING: Checksums do not match. Use overwrite parameter to force download.")
         else:
-            download_s3file(module, s3, bucket, obj, dest, retries, version=version, validate=validate)
+            download_s3file(module, s3, bucket, obj, dest, retries, version=version)
 
 
         # Firstly, if key_matches is TRUE and overwrite is not enabled, we EXIT with a helpful message.
@@ -599,7 +633,7 @@ def main():
 
         # Lets check to see if bucket exists to get ground truth.
         if bucketrtn:
-            keyrtn = key_check(module, s3, bucket, obj)
+            keyrtn = key_check(module, s3, bucket, obj, version=version)
 
         # Lets check key state. Does it exist and if it does, compute the etag md5sum.
         if bucketrtn and keyrtn:
@@ -687,17 +721,17 @@ def main():
         if not bucket and not obj:
             module.fail_json(msg="Bucket and Object parameters must be set")
 
-        keyrtn = key_check(module, s3, bucket, obj, validate=validate)
+        keyrtn = key_check(module, s3, bucket, obj, version=version)
         if keyrtn:
-            get_download_url(module, s3, bucket, obj, expiry, validate=validate)
+            get_download_url(module, s3, bucket, obj, expiry)
         else:
             module.fail_json(msg="Key %s does not exist." % obj)
 
     if mode == 'getstr':
         if bucket and obj:
-            keyrtn = key_check(module, s3, bucket, obj, version=version, validate=validate)
+            keyrtn = key_check(module, s3, bucket, obj, version=version)
             if keyrtn:
-                download_s3str(module, s3, bucket, obj, version=version, validate=validate)
+                download_s3str(module, s3, bucket, obj, version=version)
             elif version is not None:
                 module.fail_json(msg="Key %s with version id %s does not exist." % (obj, version))
             else:
@@ -709,13 +743,21 @@ def main():
 def get_s3_connection(aws_connect_kwargs, location, rgw, s3_url):
     if s3_url and rgw:
         rgw = urlparse(s3_url)
-        s3 = boto.connect_s3(
-            is_secure=rgw.scheme == 'https',
-            host=rgw.hostname,
-            port=rgw.port,
-            calling_format=OrdinaryCallingFormat(),
-            **aws_connect_kwargs
+        s3 = boto3_conn(module,
+                        conn_type='client',
+                        resource='s3',
+                        region=location,
+                        endpoint=s3_url,
+                        **aws_connect_kwargs
         )
+        # Not currently utilizing rgw - previously:
+        #s3 = boto.connect_s3(
+        #                     is_secure=rgw.scheme == 'https',
+        #                     host=rgw.hostname,
+        #                     port=rgw.port,
+        #                     calling_format=OrdinaryCallingFormat(),
+        #                     **aws_connect_kwargs
+        #)
     elif is_fakes3(s3_url):
         fakes3 = urlparse(s3_url)
         s3 = S3Connection(
