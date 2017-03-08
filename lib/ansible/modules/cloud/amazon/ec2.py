@@ -1024,14 +1024,21 @@ def create_instances(module, ec2, vpc, override_count=None):
             unmatched = set(group_name).difference(str(grp.name) for grp in grp_details)
             if len(unmatched) > 0:
                 module.fail_json(msg="The following group names are not valid: %s" % ', '.join(unmatched))
-            group_id = [ str(grp.id) for grp in grp_details if str(grp.name) in group_name ]
+            if vpc_subnet_id:
+                group_id = [ str(grp.id) for grp in grp_details if str(grp.name) in group_name ]
+            else:
+                group_name = [str(grp.name) for grp in grp_details if str(grp.name) in group_name]
         # Now we try to lookup the group id testing if group exists.
         elif group_id:
             #wrap the group_id in a list if it's not one already
             if isinstance(group_id, basestring):
                 group_id = [group_id]
             grp_details = ec2.get_all_security_groups(group_ids=group_id)
-            group_name = [grp_item.name for grp_item in grp_details]
+            if vpc_subnet_id:
+                # cannot provide subnet_id with security group names - must be group_ids
+                group_id = [grp.id for grp_item in grp_details]
+            else:
+                group_name = [grp_item.name for grp_item in grp_details]
     except boto.exception.NoAuthHandlerFound as e:
         module.fail_json(msg = str(e))
 
