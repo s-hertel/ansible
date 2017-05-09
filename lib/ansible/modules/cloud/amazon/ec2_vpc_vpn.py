@@ -64,28 +64,21 @@ options:
   filters:
     description:
       - An alternative to using vpn_connection_id. If multiple matches are found, vpn_connection_id is required.
+        customer-gateway-configuration (str), option.static-routes-only (bool), route.destination-cidr-block (list),
+        bgp-asn (str), vpn-connection-id (str), vpn-gateway-id (str), tag-keys (list), tag-values (list), tag (dict),
+        customer-gateway-id (str).
     type: dict
-      keys:
-        - customer-gateway-configuration
-          type: str
-        - option.static-routes-only
-          type: bool
-        - route.destination-cidr-block
-          type: list
-        - bgp-asn
-          type: str
-        - vpn-connection-id
-          type: str
-        - vpn-gateway-id
-          type: str
-        - tag-keys
-          type: list
-        - tag-values
-          type: list
-        - tag
-          type: dict
-        - customer-gateway-id
-          type: list
+    choices:
+      - customer-gateway-configuration
+      - option.static-routes-only
+      - route.destination-cidr-block
+      - bgp-asn
+      - vpn-connection-id
+      - vpn-gateway-id
+      - tag-keys
+      - tag-values
+      - tag
+      - customer-gateway-id
   check_mode:
     description:
       - see what changes will be made before making them
