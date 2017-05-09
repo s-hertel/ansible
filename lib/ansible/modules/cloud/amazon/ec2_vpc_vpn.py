@@ -21,10 +21,11 @@ ANSIBLE_METADATA = {'metadata_version': '1.0',
 
 DOCUMENTATION = """
 ---
-module: ec2_vpn
-short_description:
+module: ec2_vpc_vpn
+short_description: create, modify, and delete VPN connections
 description:
-  - This module creates, modifies, and deletes VPN connections
+  - This module creates, modifies, and deletes VPN connections. Idempotence is achieved by using the filters
+    options or specifying the VPN connection identifier.
 version_added: "2.4"
 author: "Sloane Hertel (@s-hertel)"
 options:
@@ -69,16 +70,16 @@ options:
         customer-gateway-id (str).
     type: dict
     choices:
-      - customer-gateway-configuration
-      - option.static-routes-only
-      - route.destination-cidr-block
-      - bgp-asn
-      - vpn-connection-id
-      - vpn-gateway-id
-      - tag-keys
-      - tag-values
-      - tag
-      - customer-gateway-id
+      - 'customer-gateway-configuration'
+      - 'option.static-routes-only'
+      - 'route.destination-cidr-block'
+      - 'bgp-asn'
+      - 'vpn-connection-id'
+      - 'vpn-gateway-id'
+      - 'tag-keys'
+      - 'tag-values'
+      - 'tag'
+      - 'customer-gateway-id'
   check_mode:
     description:
       - see what changes will be made before making them
@@ -112,53 +113,60 @@ EXAMPLES = """
 RETURN = """
 changed:
   description: if the connection has changed
+  type: bool
   returned: always
   sample:
     changed: true
 customer_gateway_configuration:
   description: the configuration of the connection
-  returned: when the connection exists
+  type: str
 customer_gateway_id:
   description: the customer gateway connected via the connection
   type: str
-  returned: when the connection exists
   sample:
     customer_gateway_id: cgw-1220c87b
 vpn_gateway_id:
   description: the virtual private gateway connected via the connection
   type: str
-  returned: when the connection exists
   sample:
     vpn_gateway_id: vgw-cb0ae2a2
 options:
   static_routes_only:
     description: the type of routing option
-    type: str
-    returned: when the connection exists
+    type: bool
     sample:
       static_routes_only: true
 routes:
   description: the connection routes
   type: list
-  returned: when the connection exists
   sample:
     routes: []
 state:
   description: the status of the connection
   type: string
-  returned: when the connection exists and is modifiable (no deleted/deleting connections)
   sample:
     state: available
 type:
   description: the type of connection
   type: str
-  returned: when the connection exists
   sample:
     type: "ipsec.1"
 vgw_telemetry:
-  description:
+  type: list
+  description: the telemetry for the VPN tunnel
+  sample:
+    vgw_telemetry: [{
+                     'outside_ip_address': 'string',
+                     'status': 'up',
+                     'last_status_change': datetime(2015, 1, 1),
+                     'status_message': 'string',
+                     'accepted_route_count': 123
+                    }]
 vpn_connection_id:
-  description:
+  description: the identifier for the VPN connection
+  type: str
+  sample:
+    vpn_connection_id: vpn-781e0e19
 """
 
 # import module snippets
