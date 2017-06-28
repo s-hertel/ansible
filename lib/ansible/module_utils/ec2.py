@@ -52,6 +52,11 @@ try:
 except:
     HAS_LOOSE_VERSION = False
 
+try:
+    unicode
+except NameError:
+    from ansible.module_utils._text import to_text as unicode
+
 from ansible.module_utils.six import string_types
 
 class AnsibleAWSError(Exception):
