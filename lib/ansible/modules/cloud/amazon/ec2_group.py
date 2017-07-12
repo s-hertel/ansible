@@ -372,6 +372,27 @@ def rule_expand_sources(rule):
             for r in rule_expand_source(rule, stype)]
 
 
+def get_readable_current_rules(group):
+    ''' turns the latest state rule_key into sensible output '''
+    inbound_rules = {}
+    outbound_rules = {}
+    addRulesToLookup(group.rules, 'in', inbound_rules)
+    addRulesToLookup(group.rules_egress, 'out', outbound_rules)
+    inbound_rules = [rule.split('-') for rule in set(inbound_rules)]
+    outbound_rules = [rule.split('-') for rule in set(outbound_rules)]
+
+    for rule_type in (inbound_rules, outbound_rules):
+        for each in rule_type:
+            if each[4] == 'sg':
+                each[4] = each[4] + '-' + each[5]
+                del each[5]
+
+    outbound_rules_human = [dict(proto=rule[1] or 'all', from_port=rule[2], to_port=rule[3], group_id=rule[4], cidr_ip=rule[5]) for rule in outbound_rules]
+    inbound_rules_human = [dict(proto=rule[1] or 'all', from_port=rule[2], to_port=rule[3], group_id=rule[4], cidr_ip=rule[5]) for rule in inbound_rules]
+
+    return inbound_rules_human, outbound_rules_human
+
+
 def rules_expand_sources(rules):
     # takes a list of rules and expands it based on 'cidr_ip', 'group_id', 'group_name'
     if not rules:
@@ -623,7 +644,8 @@ def main():
                 changed = True
 
     if group:
-        module.exit_json(changed=changed, group_id=group.id)
+        inbound, outbound = get_readable_current_rules(group)
+        module.exit_json(changed=changed, group_id=group.id, rules_egress=outbound, rules=inbound)
     else:
         module.exit_json(changed=changed, group_id=None)
 
