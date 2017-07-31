@@ -50,6 +50,7 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils._text import to_native
 from ansible.module_utils.ec2 import HAS_BOTO3, camel_dict_to_snake_dict, ec2_argument_spec
 import traceback
+import botocore
 
 # We will also export HAS_BOTO3 so end user modules can use it.
 __all__ = ('AnsibleAWSModule', 'HAS_BOTO3',)
@@ -141,3 +142,15 @@ class AnsibleAWSModule(object):
         else:
             self._module.fail_json(msg=message, exception=last_traceback,
                                    **camel_dict_to_snake_dict(response))
+
+
+def try_except(RaiseError, failure_msg=""):
+    def wrapper(f):
+        def run_func(*args, **kwargs):
+            try:
+                result = f(*args, **kwargs)
+            except botocore.exceptions.ClientError as e:
+                raise RaiseError(msg=failure_msg, exception=traceback.format_exc(), response=camel_dict_to_snake_dict(e.response))
+            return result
+        return run_func
+    return wrapper
