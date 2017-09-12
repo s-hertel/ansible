@@ -419,7 +419,7 @@ def main():
     )
 
     # Validate Requirements
-    if not (HAS_BOTO or HAS_BOTO3):
+    if not (HAS_BOTO and HAS_BOTO3):
         module.fail_json(msg='json and boto/boto3 is required.')
 
     try:
