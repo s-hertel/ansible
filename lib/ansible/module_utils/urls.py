@@ -591,7 +591,7 @@ class SSLValidationHandler(urllib_request.BaseHandler):
     '''
     CONNECT_COMMAND = "CONNECT %s:%s HTTP/1.0\r\nConnection: close\r\n"
 
-    def __init__(self, hostname, port, ca_path):
+    def __init__(self, hostname, port, ca_path=None):
         self.hostname = hostname
         self.port = port
         self.ca_path = ca_path
@@ -807,7 +807,7 @@ class SSLValidationHandler(urllib_request.BaseHandler):
     https_request = http_request
 
 
-def maybe_add_ssl_handler(url, validate_certs, ca_path):
+def maybe_add_ssl_handler(url, validate_certs, ca_path=None):
     parsed = generic_urlparse(urlparse(url))
     if parsed.scheme == 'https' and validate_certs:
         if not HAS_SSL:
