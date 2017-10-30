@@ -148,6 +148,12 @@ options:
       required: false
       type: bool
       default: false
+  numbers_in_definition:
+      description:
+        - If there are floats or integers in C(definition) and this option is set to True,
+          any strings that are integers or floats will be cast as such (with the exception of version).
+      type: bool
+      default: false
 
 extends_documentation_fragment:
     - docker
@@ -470,7 +476,7 @@ except ImportError as exc:
     DEFAULT_TIMEOUT = 10
 
 from ansible.module_utils.docker_common import AnsibleDockerClient, DockerBaseClass
-
+from ansible.module_utils.six import string_types
 
 AUTH_PARAM_MAPPING = {
     u'docker_host': u'--host',
@@ -632,6 +638,8 @@ class ContainerManager(DockerBaseClass):
             self.project_src = tempfile.mkdtemp(prefix="ansible")
             compose_file = os.path.join(self.project_src, "docker-compose.yml")
             try:
+                if client.module.params.get('numbers_in_definition'):
+                    self.definition = self.convert_to_numbers(dict(self.definition))
                 self.log('writing: ')
                 self.log(yaml.dump(self.definition, default_flow_style=False))
                 with open(compose_file, 'w') as f:
@@ -647,6 +655,25 @@ class ContainerManager(DockerBaseClass):
             self.project = project_from_options(self.project_src, self.options)
         except Exception as exc:
             self.client.fail("Configuration error - %s" % str(exc))
+
+    def convert_to_numbers(self, definition):
+        for (key, value) in definition.items():
+            if key == "version":
+                pass
+            elif isinstance(value, string_types):
+                if '.' in value:
+                    try:
+                        definition[key] = float(value)
+                    except ValueError:
+                        pass
+                else:
+                    try:
+                        definition[key] = int(value)
+                    except ValueError:
+                        pass
+            elif isinstance(value, dict):
+                definition[key] = self.convert_to_numbers(dict(value))
+        return definition
 
     def exec_module(self):
         result = dict()
@@ -1044,7 +1071,8 @@ def main():
         pull=dict(type='bool', default=False),
         nocache=dict(type='bool', default=False),
         debug=dict(type='bool', default=False),
-        timeout=dict(type='int', default=DEFAULT_TIMEOUT)
+        timeout=dict(type='int', default=DEFAULT_TIMEOUT),
+        numbers_in_definition=dict(type='bool', default=False),
     )
 
     mutually_exclusive = [
