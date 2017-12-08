@@ -24,6 +24,7 @@ import os
 import re
 import string
 
+from operator import attrgetter
 from collections import MutableMapping
 
 from ansible.errors import AnsibleError, AnsibleOptionsError, AnsibleParserError
@@ -228,6 +229,30 @@ class Cacheable(object):
 
     def clear_cache(self):
         self._cache = {}
+
+    def format_inventory(self):
+
+        def format_group(group):
+            results = {}
+            results[group.name] = {}
+            if group.name != 'all':
+                results[group.name]['hosts'] = [h.name for h in sorted(group.hosts, key=attrgetter('name'))]
+            results[group.name]['children'] = []
+            for subgroup in sorted(group.child_groups, key=attrgetter('name')):
+                results[group.name]['children'].append(subgroup.name)
+                results.update(format_group(subgroup))
+            return results
+
+        top = self.inventory.groups.get('all')
+        results = format_group(top)
+
+        # populate meta
+        results['_meta'] = {'hostvars': {}}
+        for host in self.inventory.hosts:
+            h = self.inventory.get_host(host)
+            results['_meta']['hostvars'][h.name] = h.vars
+
+        return results
 
 
 class Constructable(object):
