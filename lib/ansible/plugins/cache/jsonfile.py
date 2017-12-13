@@ -49,7 +49,7 @@ try:
 except ImportError:
     import json
 
-from ansible.parsing.utils.jsonify import jsonify
+from ansible.module_utils.basic import jsonify
 from ansible.plugins.cache import BaseFileCacheModule
 
 

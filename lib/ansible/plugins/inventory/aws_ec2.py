@@ -8,6 +8,8 @@ DOCUMENTATION = '''
     name: aws_ec2
     plugin_type: inventory
     short_description: ec2 inventory source
+    extends_documentation_fragment:
+        - inventory_cache
     description:
         - Get inventory hosts from Amazon Web Services EC2.
         - Uses a <name>.aws_ec2.yaml (or <name>.aws_ec2.yml) YAML configuration file.
@@ -78,14 +80,16 @@ simple_config_file:
     strict_permissions: False
 '''
 
-from ansible.plugins.inventory import BaseInventoryPlugin, to_safe_group_name
 from ansible.errors import AnsibleError, AnsibleParserError
 from ansible.module_utils._text import to_native, to_text
 from ansible.module_utils.six import string_types
 from ansible.module_utils.ec2 import ansible_dict_to_boto3_filter_list, boto3_tag_list_to_ansible_dict
-from collections import namedtuple
+from ansible.module_utils.basic import jsonify
+from ansible.plugins.inventory import BaseInventoryPlugin, Cacheable, to_safe_group_name
 
+from collections import namedtuple
 import os
+import hashlib
 
 try:
     import boto3
@@ -186,7 +190,7 @@ instance_data_filter_to_boto_attr = {
 }
 
 
-class InventoryModule(BaseInventoryPlugin):
+class InventoryModule(BaseInventoryPlugin, Cacheable):
 
     NAME = 'aws_ec2'
 
@@ -195,11 +199,7 @@ class InventoryModule(BaseInventoryPlugin):
 
         self.group_prefix = 'aws_ec2_'
 
-        # configuration
         self.cache = None
-        self.do_cache = False
-        self.cache_timeout = 0
-        self.cache_path = None
 
         # credentials
         self.boto_profile = None
@@ -451,6 +451,45 @@ class InventoryModule(BaseInventoryPlugin):
 
         return sorted(all_instances, key=lambda x: x.instance_data['InstanceId'])
 
+    def _get_tag_value(self, key, instance):
+        tags = boto3_tag_list_to_ansible_dict(instance.instance_data.get('Tags', []))
+        return tags.get(key)
+
+    def _get_tag_key(self, value, instance):
+        tags = boto3_tag_list_to_ansible_dict(instance.instance_data.get('Tags', []))
+        for (k, v) in tags.items():
+            if value == v:
+                return k
+
+    def _get_tag_hostname(self, preference):
+        have_hostname = None
+        for key, value in self._get_group_by_name_and_value([preference]):
+            if ',' in value:
+                value = value.split(',')
+            else:
+                value = [value]
+            for v in value:
+                if preference.startswith('tag-key') or preference.startswith('tag-value'):
+                    found_hostname = self._get_group_by_tag_values('%s=%s' % (key, v), instance)
+                    for host in found_hostname:
+                        if preference.startswith('tag-key'):
+                            hostname = to_text(v) + "_" + to_text(self._get_tag_value(v, instance))
+                        elif preference.startswith('tag-value'):
+                            hostname = to_text(v) + "_" + to_text(self._get_tag_key(v, instance))
+                        if hostname:
+                            have_hostname = found_hostname
+                            break
+
+                if preference.startswith('tag:'):
+                    tag_name, tag_value = v.split('=')
+                    found_hostname = self._get_group_by_tag_values("%s%s" % (key, v), instance)
+                    if found_hostname.get(tag_name) == tag_value:
+                        hostname = to_text(v) + "_" + to_text(self._get_tag_key(v, instance))
+                        if hostname:
+                            have_hostname = found_hostname
+                            break
+        return have_hostname
+
     def _get_hostname(self, instance, hostnames):
         '''
             :param instance: a named tuple with instance_data field
@@ -460,15 +499,19 @@ class InventoryModule(BaseInventoryPlugin):
         if not hostnames:
             hostnames = ['dns-name', 'private-dns-name']
 
+        hostname = None
         for preference in hostnames:
-            hostname = self._get_boto_attr_chain(preference, instance)
-            if hostname:
-                if ':' in to_text(hostname):
-                    return to_safe_group_name(to_text(hostname))
-                else:
-                    return to_text(hostname)
+            if 'tag' in preference:
+                hostname = self._get_tag_hostname(preference)
+            else:
+                hostname = self._get_boto_attr_chain(preference, instance)
+        if hostname:
+            if ':' in to_text(hostname):
+                return to_safe_group_name(to_text(hostname))
+            else:
+                return to_text(hostname)
 
-    def _populate(self, regions, filters, group_by, hostnames, strict_permissions):
+    def _query(self, regions, filters, group_by, strict_permissions):
         '''
             :param regions: a list of regions to query
             :param filters: a list of boto3 filter dictionaries
@@ -478,7 +521,9 @@ class InventoryModule(BaseInventoryPlugin):
         '''
         filtered_instances = self._get_instances_by_region(regions, filters, strict_permissions)
         groups = self._assemble_groups(filtered_instances, group_by)
+        return groups
 
+    def _populate(self, groups, hostnames):
         for group_n in groups:
             if group_n == 'aws_ec2':
                 self.inventory.add_group(group_n)
@@ -491,6 +536,19 @@ class InventoryModule(BaseInventoryPlugin):
                         groupname = to_safe_group_name(self.group_prefix + to_text(group_n) + '_' + to_text(group_v))
                     self.inventory.add_group(groupname)
                     self._add_hosts(hosts=groups[group_n][group_v], group=groupname, hostnames=hostnames)
+            self.inventory.add_child('all', group_n)
+
+    def _populate_from_source(self, source_data):
+        hostvars = source_data.pop('_meta', {}).get('hostvars', {})
+        for group in source_data:
+            if group == 'all':
+                continue
+            else:
+                self.inventory.add_group(group)
+                hosts = source_data[group].get('hosts', [])
+                for host in hosts:
+                    self._populate_host_vars([host], hostvars.get(host, {}), group)
+                self.inventory.add_child('all', group)
 
     def _add_hosts(self, hosts, group, hostnames):
         '''
@@ -500,6 +558,8 @@ class InventoryModule(BaseInventoryPlugin):
         '''
         for host in hosts:
             hostname = self._get_hostname(host, hostnames)
+            if not hostname:
+                continue
             self.inventory.add_host(hostname, group=group)
             for hostvar in host.instance_data.keys():
                 self.inventory.set_variable(hostname, hostvar, host.instance_data[hostvar])
@@ -524,30 +584,22 @@ class InventoryModule(BaseInventoryPlugin):
             :param path: the path to the inventory config file
             :return the contents of the config file
         '''
-        self.verify_file(path)
-
-        # file is config file
-        try:
-            config_data = self.loader.load_from_file(path)
-        except Exception as e:
-            raise AnsibleParserError(to_native(e))
-
-        if not config_data or config_data.get('plugin') != self.NAME:
-            # this is not my config file
+        if not self.verify_file(path):
             raise AnsibleParserError("Not a ec2 inventory plugin configuration file")
+        return self._read_config_data(path)
 
-        return config_data
-
-    def _set_cache(self, inventory, path, cache):
+    def _set_cache(self, path):
         '''
             :param inventory: an ansible.inventory.data.InventoryData object
             :param path: the path to the inventory config file
         '''
-        cache_key = self.get_cache_prefix(path)
-        if cache and cache_key not in self._cache:
+        # get unique cache key
+        cache_key = self._get_cache_prefix(path)
+        if cache_key not in self._cache:
             self._cache[cache_key] = {}
-        elif cache and cache_key in self._cache:
+        else:
             self.cache = self._cache[cache_key]
+        return cache_key
 
     def _get_query_options(self, config_data):
         '''
@@ -605,16 +657,40 @@ class InventoryModule(BaseInventoryPlugin):
                 return True
 
     def parse(self, inventory, loader, path, cache=True):
-
         super(InventoryModule, self).parse(inventory, loader, path)
         config_data = self._validate_config(loader, path)
-        self.set_options(direct=config_data)
-
-        # self._set_cache(inventory, path, cache)
         self._set_credentials(config_data)
 
         # get user specifications
         regions, filters, group_by, hostnames, strict_permissions = self._get_query_options(config_data)
 
-        # actually populate inventory
-        self._populate(regions, filters, group_by, hostnames, strict_permissions)
+        cache_key = self._get_cache_prefix(path)
+        cache_path = "%s/%s" % (self.cache._cache_dir, cache_key)
+        # FIXME: cache per config file
+        #unique_config_id = hashlib.md5(path).hexdigest()
+        #cache_path = "%s/%s" % (self.cache._cache_dir, cache_key + unique_config_id)
+
+        using_current_cache = False
+        cache_contents = None
+        cache = self._options['cache']
+
+        if cache and not self.cache.has_expired(cache_key):
+            cache_contents = self.cache.get(cache_key)
+            if not cache_contents:
+                cache_contents = jsonify(self.cache._load(cache_path), sort_keys=True, indent=4)
+                self.cache.set(cache_key, cache_contents)
+            if cache_contents is not None:
+                using_current_cache = True
+
+        if using_current_cache:
+            self._populate_from_source(cache_contents)
+        elif not using_current_cache:
+            results = self._query(regions, filters, group_by, strict_permissions)
+            self._populate(results, hostnames)
+
+        if cache and not using_current_cache:
+            # update the cache
+            data = self.format_inventory()
+            data = jsonify(data, sort_keys=True, indent=4)
+            self.cache.set(cache_key, data)
+            self.cache._dump(data, cache_path)
