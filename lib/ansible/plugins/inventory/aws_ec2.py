@@ -664,23 +664,20 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
         # get user specifications
         regions, filters, group_by, hostnames, strict_permissions = self._get_query_options(config_data)
 
-        cache_key = self._get_cache_prefix(path)
+        cache_prefix = self._get_cache_prefix(path)
+        config_id = hashlib.md5(path).hexdigest()
+        cache_key = "aws_ec2_%s_%s" % (cache_prefix, config_id)
         cache_path = "%s/%s" % (self.cache._cache_dir, cache_key)
-        # FIXME: cache per config file
-        #unique_config_id = hashlib.md5(path).hexdigest()
-        #cache_path = "%s/%s" % (self.cache._cache_dir, cache_key + unique_config_id)
 
         using_current_cache = False
         cache_contents = None
         cache = self._options['cache']
 
-        if cache and not self.cache.has_expired(cache_key):
+        if cache and os.path.isfile(cache_path) and not self.cache.has_expired(cache_key):
             cache_contents = self.cache.get(cache_key)
-            if not cache_contents:
-                cache_contents = jsonify(self.cache._load(cache_path), sort_keys=True, indent=4)
-                self.cache.set(cache_key, cache_contents)
-            if cache_contents is not None:
-                using_current_cache = True
+            using_current_cache = True
+        elif os.path.exists(cache_path) and not os.path.isfile(cache_path):
+            raise AnsibleError("Unable to load cache from: %s." % cache_path)
 
         if using_current_cache:
             self._populate_from_source(cache_contents)
@@ -690,7 +687,7 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
 
         if cache and not using_current_cache:
             # update the cache
+            # FIXME: unique cache per config file rather than generating data from entire inventory
             data = self.format_inventory()
-            data = jsonify(data, sort_keys=True, indent=4)
             self.cache.set(cache_key, data)
             self.cache._dump(data, cache_path)
