@@ -92,7 +92,7 @@ from ansible.plugins.cache import BaseFileCacheModule
 from collections import namedtuple
 import json
 import os
-from time import time
+import hashlib
 
 try:
     import boto3
@@ -529,20 +529,37 @@ class InventoryModule(BaseInventoryPlugin, InventoryCache):
         groups = self._assemble_groups(filtered_instances, group_by)
         return groups
 
+    def groupname_gen(self, groups, group):
+        if group == 'aws_ec2':
+            yield group, groups[group]
+        else:
+            for group_value in groups[group]:
+                if group == 'tag:':
+                    groupname = to_safe_group_name(self.group_prefix + to_text(group) + to_text(group_value))
+                else:
+                    groupname = to_safe_group_name(self.group_prefix + to_text(group) + '_' + to_text(group_value))
+                yield groupname, groups[group][group_value]
+
+    def _format_inventory(self, groups, hostnames):
+        results = {'_meta': {'hostvars': {}}}
+        for group_n in groups:
+            for groupname, hosts in self.groupname_gen(groups, group_n):
+                results[groupname] = {'hosts': []}
+                for host in hosts:
+                    hostname = self._get_hostname(host, hostnames)
+                    if not hostname:
+                        continue
+                    results[groupname]['hosts'].append(hostname)
+                    h = self.inventory.get_host(hostname)
+                    results['_meta']['hostvars'][h.name] = h.vars
+        return results
+
     def _populate(self, groups, hostnames):
         for group_n in groups:
-            if group_n == 'aws_ec2':
-                self.inventory.add_group(group_n)
-                self._add_hosts(hosts=groups[group_n], group=group_n, hostnames=hostnames)
-            else:
-                for group_v in groups[group_n]:
-                    if group_n == 'tag:':
-                        groupname = to_safe_group_name(self.group_prefix + to_text(group_n) + to_text(group_v))
-                    else:
-                        groupname = to_safe_group_name(self.group_prefix + to_text(group_n) + '_' + to_text(group_v))
-                    self.inventory.add_group(groupname)
-                    self._add_hosts(hosts=groups[group_n][group_v], group=groupname, hostnames=hostnames)
-            self.inventory.add_child('all', group_n)
+            for groupname, hosts in self.groupname_gen(groups, group_n):
+                self.inventory.add_group(groupname)
+                self._add_hosts(hosts=hosts, group=groupname, hostnames=hostnames)
+                self.inventory.add_child('all', groupname)
 
     def _populate_from_source(self, source_data):
         hostvars = source_data.pop('_meta', {}).get('hostvars', {})
@@ -678,6 +695,9 @@ class InventoryModule(BaseInventoryPlugin, InventoryCache):
         cache_plugin = self._options['cache_plugin']
         cache_connection = self._options['cache_connection']
         cache_timeout = self._options['cache_timeout']
+        cache_key = self._set_cache(path)
+        cache_filename = "aws_ec2_" + cache_key + "_" + hashlib.md5(path.encode()).hexdigest()
+        cache_path = cache_connection + "/" + cache_filename
 
         using_current_cache = False
         if cache and not cache_connection:
@@ -685,26 +705,32 @@ class InventoryModule(BaseInventoryPlugin, InventoryCache):
                                "or using env var ANSIBLE_INVENTORY_CACHE_CONNECTION.")
 
         if cache:
-            cache_key = self._set_cache(path)
-            cache_path = cache_connection + "/" + "aws_ec2_" + cache_key
-            if os.path.isfile(cache_path):
-                last_cache_update = os.path.getmtime(cache_path)
-                current_time = time()
-                if (last_cache_update + cache_timeout) > current_time:
-                    using_current_cache = True
+            if self._valid_cache(cache_connection, cache_filename, cache_timeout):
                 # FIXME Take --refresh-cache into account
-            elif not os.path.isdir(cache_connection):
-                raise AnsibleError("Cache directory %s does not exist." % cache_connection)
+                using_current_cache = True
+            else:
+                pass
 
+        formatted_inventory = {}
         if using_current_cache:
-            results = self._load(cache_path)
+            if self._cache.get(cache_key):
+                results = self._cache[cache_key]
+            else:
+                results = self._load(cache_path)
             self._populate_from_source(results)
         else:
             results = self._query(regions, filters, group_by, strict_permissions)
             self._populate(results, hostnames)
+            formatted_inventory = self._format_inventory(results, hostnames)
 
         if cache and not using_current_cache:
             # update the cache
-            data = self.format_inventory()
+
+            # config specific data
+            data = formatted_inventory
+            # global inventory data
+            #data = self.format_inventory()
+
             data = jsonify(data, sort_keys=True, indent=4)
+            self._cache[cache_key] = data
             self._dump(data, cache_path)

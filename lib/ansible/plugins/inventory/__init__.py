@@ -26,6 +26,7 @@ import string
 
 from operator import attrgetter
 from collections import MutableMapping
+from time import time
 
 from ansible.errors import AnsibleError, AnsibleOptionsError, AnsibleParserError
 from ansible.plugins import AnsiblePlugin
@@ -144,6 +145,10 @@ class BaseInventoryPlugin(AnsiblePlugin):
         self.inventory = None
         self.display = display
 
+    def _set_cache_options(direct):
+        self.set_options(direct=direct)
+        self.cache_options = Cacheable()
+
     def parse(self, inventory, loader, path, cache=True):
         ''' Populates self.groups from the given data. Raises an error on any parse failure.  '''
 
@@ -230,8 +235,25 @@ class Cacheable(object):
     def clear_cache(self):
         self._cache = {}
 
-    def format_inventory(self):
+    def _valid_cache(self, directory, filename, timeout):
+        cache_path = "{0}/{1}".format(directory, filename)
+        if not os.path.isdir(directory):
+            raise AnsibleError("Cache directory {0} does not exist.".format(directory))
+        if os.path.isfile(cache_path):
+            return not self._needs_reset(cache_path, timeout)
+        elif not os.path.exists(cache_path):
+            return False
+        else:
+            raise AnsibleError("Cache {0} is not a file.".format(cache_path))
 
+    def _needs_reset(self, path, timeout):
+        last_cache_update = os.path.getmtime(path)
+        if (last_cache_update + timeout) > time():
+            return False
+        else:
+            return True
+
+    def format_inventory(self):
         def format_group(group):
             results = {}
             results[group.name] = {}
