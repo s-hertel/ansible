@@ -107,18 +107,10 @@ instances = {
 }
 
 
-def test_get_group_by_values():
-    inv = InventoryModule()
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-    group_by = "instance-type"
-    assert inv._get_group_by_values(group_by, formatted_instance) == "t2.micro"
-
-
 def test_compile_values():
     inv = InventoryModule()
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
+    found_value = instances['Instances'][0]
     chain_of_keys = instance_data_filter_to_boto_attr['instance.group-id']
-    found_value = formatted_instance.instance_data
     for attr in chain_of_keys:
         found_value = inv._compile_values(found_value, attr)
     assert found_value == "sg-12345678"
@@ -126,8 +118,8 @@ def test_compile_values():
 
 def test_get_boto_attr_chain():
     inv = InventoryModule()
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-    assert inv._get_boto_attr_chain('network-interface.addresses.private-ip-address', formatted_instance) == "098.76.54.321"
+    instance = instances['Instances'][0]
+    assert inv._get_boto_attr_chain('network-interface.addresses.private-ip-address', instance) == "098.76.54.321"
 
 
 def test_get_group_by_name_and_value():
@@ -136,55 +128,6 @@ def test_get_group_by_name_and_value():
     group_generator = inv._get_group_by_name_and_value(groups_to_make)
     formatted_groups_to_make = sorted([(group_name, group_value) for group_name, group_value in group_generator])
     assert formatted_groups_to_make == [('instance-type', 't2.micro'), ('tag:', 'ansible=test')]
-
-
-def test_compare_tag_groupings_dict():
-    inv = InventoryModule()
-
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-
-    for group_name, group_value in inv._get_group_by_name_and_value(["tag:ansible=test"]):
-        found_value = inv._get_group_by_values(group_name, formatted_instance)
-        assert inv._compare_tag_groupings(group_value, found_value)
-
-
-def test_compare_tag_groupings_dict_false():
-    inv = InventoryModule()
-
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-
-    for group_name, group_value in inv._get_group_by_name_and_value(["tag:nothere=test"]):
-        found_value = inv._get_group_by_values(group_name, formatted_instance)
-        assert not inv._compare_tag_groupings(group_value, found_value)
-
-
-def test_compare_tag_groupings_list():
-    inv = InventoryModule()
-
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-
-    for group_name, group_value in inv._get_group_by_name_and_value(["tag-value=test", "tag-value=aws_ec2"]):
-        found_value = inv._get_group_by_values(group_name, formatted_instance)
-        assert inv._compare_tag_groupings(group_value, found_value)
-
-
-def test_compare_tag_groupings_list_false():
-    inv = InventoryModule()
-
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-
-    for group_name, group_value in inv._get_group_by_name_and_value(["tag-key=nothere"]):
-        found_value = inv._get_group_by_values(group_name, formatted_instance)
-        assert not inv._compare_tag_groupings(group_value, found_value)
-
-
-def test_assemble_groups():
-    inv = InventoryModule()
-    formatted_instances = [instance for instance in inv._format_instance_data('us-east-1', instances)]
-    groups_to_make = ["tag:ansible=test", "instance-type=t2.micro"]
-    groups = inv._assemble_groups(formatted_instances, groups_to_make)
-    assert sorted(list(groups.keys())) == ['instance-type', 'tag:']
-    assert groups['instance-type']['t2.micro'] == formatted_instances
 
 
 def test_boto3_conn():
@@ -199,34 +142,17 @@ def test_boto3_conn():
             assert error_message == "Insufficient credentials found."
 
 
-def test_format_instance_data():
-    meta_keys = ["Groups", "OwnerId", "RequesterId", "ReservationId"]
-    data_keys = ["AmiLaunchIndex", "Architecture", "BlockDeviceMappings", "ClientToken",
-                 "EbsOptimized", "EnaSupport", "Hypervisor", "ImageId", "InstanceId",
-                 "InstanceType", "KeyName", "LaunchTime", "Monitoring", "NetworkInterfaces",
-                 "Placement", "PrivateDnsName", "PrivateIpAddress", "ProductCodes",
-                 "PublicDnsName", "PublicIpAddress", "RootDeviceName", "RootDeviceType",
-                 "SecurityGroups", "SourceDestCheck", "State", "StateTransitionReason",
-                 "SubnetId", "Tags", "VirtualizationType", "VpcId"]
-
-    inv = InventoryModule()
-    for instance in inv._format_instance_data('us-east-1', instances):
-        assert instance.region == 'us-east-1'
-        assert sorted(list(instance.instance_meta.keys())) == meta_keys
-        assert sorted(list(instance.instance_data.keys())) == data_keys
-
-
 def test_get_hostname_default():
     inv = InventoryModule()
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-    assert inv._get_hostname(formatted_instance, hostnames=None) == "ip-098-76-54-321.ec2.internal"
+    instance = instances['Instances'][0]
+    assert inv._get_hostname(instance, hostnames=None) == "ec2-12-345-67-890.compute-1.amazonaws.com"
 
 
 def test_get_hostname():
-    hostnames = ['ip-address']
+    hostnames = ['ip-address', 'dns-name']
     inv = InventoryModule()
-    formatted_instance = [instance for instance in inv._format_instance_data('us-east-1', instances)][0]
-    assert inv._get_hostname(formatted_instance, hostnames) == "12.345.67.890"
+    instance = instances['Instances'][0]
+    assert inv._get_hostname(instance, hostnames) == "12.345.67.890"
 
 
 def test_set_credentials(monkeypatch):

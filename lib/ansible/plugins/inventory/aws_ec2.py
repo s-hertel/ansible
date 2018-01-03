@@ -48,9 +48,6 @@ DOCUMENTATION = '''
         filters:
           description: A dictionary of filter value pairs. Available filters are listed here
               U(http://docs.aws.amazon.com/cli/latest/reference/ec2/describe-instances.html#options)
-        group_by:
-          description: A list of filters (and optionally their values) to create inventory groups with. Available filters are
-              listed here U(http://docs.aws.amazon.com/cli/latest/reference/ec2/describe-instances.html#options)
         strict_permissions:
           description: By default if a 403 (Forbidden) is encountered this plugin will fail. You can set strict_permissions to
               False in the inventory config file which will allow 403 errors to be gracefully skipped.
@@ -63,15 +60,6 @@ simple_config_file:
     regions: # populate inventory with instances in these regions
       - us-east-1
       - us-east-2
-    group_by:
-    # makes a group for instances that have the tag key 'name' and value 'value'
-      - tag:name=value
-    # makes a group for instances that have the tag key 'prod' regardless of the value
-      - tag-key=prod
-    # makes a group for instances that have the tag values 'test' and 'ansible' regardless of the tag keys
-      - tag-value=test,ansible
-      - instance-type=t2.micro
-      - state
     filters:
     # filter by tags with the value dev
       tag:Name: dev
@@ -198,9 +186,6 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
 
         self.group_prefix = 'aws_ec2_'
 
-        # configuration
-        self.cache = None
-
         # credentials
         self.boto_profile = None
         self.aws_secret_access_key = None
@@ -213,7 +198,7 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
             :param instance: A named tuple of the instance data retrieved by boto3 describe_instances
             :return A list of tag keys or tag values or a dict of key:value pairs
         '''
-        tags = boto3_tag_list_to_ansible_dict(instance.instance_data.get('Tags', []))
+        tags = boto3_tag_list_to_ansible_dict(instance.get('Tags', []))
         if group.startswith('tag:'):
             return tags
         elif group.startswith('tag-key'):
@@ -223,20 +208,10 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
         else:
             raise AnsibleError("To group by tags, use 'tag:name=value', 'tag-value=value', or 'tag-key=key'")
 
-    def _get_group_by_values(self, group, instance):
-        '''
-            :param group: The instance attribute to group by
-            :param instance: a namedtuple of the instance data retrieved by boto3 describe_instances
-            :return The value of the instance's group attribute.
-        '''
-        if 'tag' in group:
-            return self._get_group_by_tag_values(group, instance)
-        return self._get_boto_attr_chain(group, instance)
-
     def _compile_values(self, obj, attr):
         '''
             :param obj: A list or dict of instance attributes
-            :param attr: An index or key
+            :param attr: A key
             :return The value(s) found via the attr
         '''
         if obj is None:
@@ -269,11 +244,10 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
                                                                                             allowed_filters))
         if filter_name in instance_data_filter_to_boto_attr:
             boto_attr_list = instance_data_filter_to_boto_attr[filter_name]
-            instance_value = instance.instance_data
         else:
             boto_attr_list = instance_meta_filter_to_boto_attr[filter_name]
-            instance_value = instance.instance_meta
 
+        instance_value = instance
         for attribute in boto_attr_list:
             instance_value = self._compile_values(instance_value, attribute)
         return instance_value
@@ -296,85 +270,10 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
                 group_name, group_value = group, 'all'
             yield group_name, group_value
 
-    def _compare_tag_groupings(self, group_value, found_value):
-        '''
-            :param group_value The tags defining a group (a list of tag keys or tag values or a dict of key:values)
-            :param found_value The tags associated with an instance (a list or dictionary that corresponds to group_value)
-            :return boolean, whether or not the group_value and found_value are the same
-        '''
-        if isinstance(group_value, string_types):
-            tags = group_value.split(',')
-
-            if isinstance(found_value, list):
-                if set(sorted(tags)) <= set(sorted(found_value)):
-                    return True
-            elif isinstance(found_value, dict):
-                if not found_value:
-                    return False
-
-                format_tags = {}
-
-                # no specified value; check each key is in the found value dict
-                if any('=' not in tag for tag in tags):
-                    return set([key for key, value in self._get_group_by_name_and_value(tags)]).issubset(set(list(found_value)))
-
-                # a specified value; check the specified dict matches or is a subset of the found one
-                for key, value in self._get_group_by_name_and_value(tags):
-                    format_tags[key] = value
-                return set(format_tags.items()).issubset(set(found_value.items()))
-
-    def _assemble_groups(self, instances, group_by_name):
-        '''
-            :param instances: A list of namedtuples
-            :param group_by_name: A list of group_bys provided in the inventory config file
-            :return A dictionary of groups of dictionaries of group value(s) mapping to instances
-
-            Example of a return data structure:
-
-            {'instance-type': {'t2.micro': [<class 'ansible.plugins.inventory.ec2.instance'>]}}
-        '''
-        groups = {}
-
-        for group_name, group_value in self._get_group_by_name_and_value(group_by_name):
-            groups[group_name] = groups.get(group_name) or {}
-
-            if group_name == 'aws_ec2' and group_value is None:
-                groups['aws_ec2'] = instances
-                continue
-
-            for instance in instances:
-                found_value = self._get_group_by_values(group_name, instance)
-
-                if group_value != 'all' and not (group_name == 'tag:' and '=' not in group_value):
-                    groups[group_name][group_value] = groups[group_name].get(group_value) or []
-                    if 'tag' in group_name and self._compare_tag_groupings(group_value, found_value):
-                        groups[group_name][group_value].append(instance)
-                    elif found_value == group_value:
-                        groups[group_name][group_value].append(instance)
-                    elif group_value in found_value:
-                        groups[group_name][group_value].append(instance)
-                else:
-                    # group by all values for the given attribute
-                    if 'tag:' == group_name:
-                        if self._compare_tag_groupings(group_value, found_value):
-                            for key, value in found_value.items():
-                                tag_key_value = "%s_%s" % (key, value)
-                                groups[group_name][tag_key_value] = groups[group_name].get(tag_key_value) or []
-                                groups[group_name][tag_key_value].append(instance)
-                    elif isinstance(found_value, list):
-                        for value in found_value:
-                            groups[group_name][value] = groups[group_name].get(value) or []
-                            groups[group_name][value].append(instance)
-                    elif found_value is not None:
-                        groups[group_name][found_value] = groups[group_name].get(found_value) or []
-                        groups[group_name][found_value].append(instance)
-        return groups
-
     def _get_credentials(self):
         '''
             :return A dictionary of boto client credentials
         '''
-
         boto_params = {}
         for credential in (('aws_access_key_id', self.aws_access_key_id),
                            ('aws_secret_access_key', self.aws_secret_access_key),
@@ -406,24 +305,6 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
                     raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
             yield connection, region
 
-    def _format_instance_data(self, region, instances):
-        '''
-            :param region: the region in which the instance exists
-            :param instances: the reservations returned by boto3's describe_instances
-
-            A generator that yields named tuples with the fields region, instance_meta, and instance_data.
-        '''
-        instance_meta = {'Groups': instances.get('Groups', []),
-                         'OwnerId': instances.get('OwnerId'),
-                         'RequesterId': instances.get('RequesterId'),
-                         'ReservationId': instances.get('ReservationId')}
-        for instance_data in instances.get('Instances', []):
-            instance = namedtuple('instance', ['region', 'instance_meta', 'instance_data'])
-            instance.region = region
-            instance.instance_meta = instance_meta
-            instance.instance_data = instance_data
-            yield instance
-
     def _get_instances_by_region(self, regions, filters, strict_permissions):
         '''
            :param regions: a list of regions in which to describe instances
@@ -436,7 +317,9 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
         for connection, region in self._boto3_conn(regions):
             try:
                 paginator = connection.get_paginator('describe_instances')
-                instances = paginator.paginate(Filters=filters).build_full_result().get('Reservations')
+                reservations = paginator.paginate(Filters=filters).build_full_result().get('Reservations')
+                if reservations:
+                    instances = reservations[0].get('Instances', [])
             except botocore.exceptions.ClientError as e:
                 if e.response['ResponseMetadata']['HTTPStatusCode'] == 403 and not strict_permissions:
                     instances = []
@@ -445,17 +328,16 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
             except botocore.exceptions.BotoCoreError as e:
                 raise AnsibleError("Failed to describe instances: %s" % to_native(e))
 
-            for instance in instances:
-                all_instances.extend(self._format_instance_data(region, instance))
+            all_instances.extend(instances)
 
-        return sorted(all_instances, key=lambda x: x.instance_data['InstanceId'])
+        return sorted(all_instances, key=lambda x: x['InstanceId'])
 
     def _get_tag_value(self, key, instance):
-        tags = boto3_tag_list_to_ansible_dict(instance.instance_data.get('Tags', []))
+        tags = boto3_tag_list_to_ansible_dict(instance.get('Tags', []))
         return tags.get(key)
 
     def _get_tag_key(self, value, instance):
-        tags = boto3_tag_list_to_ansible_dict(instance.instance_data.get('Tags', []))
+        tags = boto3_tag_list_to_ansible_dict(instance.get('Tags', []))
         for (k, v) in tags.items():
             if value == v:
                 return k
@@ -504,41 +386,28 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
                 hostname = self._get_tag_hostname(preference, instance)
             else:
                 hostname = self._get_boto_attr_chain(preference, instance)
+            if hostname:
+                break
         if hostname:
             if ':' in to_text(hostname):
                 return to_safe_group_name(to_text(hostname))
             else:
                 return to_text(hostname)
 
-    def _query(self, regions, filters, group_by, strict_permissions):
+    def _query(self, regions, filters, strict_permissions):
         '''
             :param regions: a list of regions to query
             :param filters: a list of boto3 filter dictionaries
-            :param group_by: a list of filters to group the query results
             :param hostnames: a list of hostname destination variables in order of preference
             :param strict_permissions: a boolean determining whether to fail or ignore 403 error codes
         '''
-        filtered_instances = self._get_instances_by_region(regions, filters, strict_permissions)
-        groups = self._assemble_groups(filtered_instances, group_by)
-        return groups
-
-    def groupname_gen(self, groups, group):
-        if group == 'aws_ec2':
-            yield group, groups[group]
-        else:
-            for group_value in groups[group]:
-                if group == 'tag:':
-                    groupname = to_safe_group_name(self.group_prefix + to_text(group) + to_text(group_value))
-                else:
-                    groupname = to_safe_group_name(self.group_prefix + to_text(group) + '_' + to_text(group_value))
-                yield groupname, groups[group][group_value]
+        return {'aws_ec2': self._get_instances_by_region(regions, filters, strict_permissions)}
 
     def _populate(self, groups, hostnames):
-        for group_n in groups:
-            for groupname, hosts in self.groupname_gen(groups, group_n):
-                self.inventory.add_group(groupname)
-                self._add_hosts(hosts=hosts, group=groupname, hostnames=hostnames)
-                self.inventory.add_child('all', groupname)
+        for group in groups:
+            self.inventory.add_group(group)
+            self._add_hosts(hosts=groups[group], group=group, hostnames=hostnames)
+            self.inventory.add_child('all', group)
 
     def _populate_from_source(self, source_data):
         hostvars = source_data.pop('_meta', {}).get('hostvars', {})
@@ -554,16 +423,15 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
 
     def _format_inventory(self, groups, hostnames):
         results = {'_meta': {'hostvars': {}}}
-        for group_n in groups:
-            for groupname, hosts in self.groupname_gen(groups, group_n):
-                results[groupname] = {'hosts': []}
-                for host in hosts:
-                    hostname = self._get_hostname(host, hostnames)
-                    if not hostname:
-                        continue
-                    results[groupname]['hosts'].append(hostname)
-                    h = self.inventory.get_host(hostname)
-                    results['_meta']['hostvars'][h.name] = h.vars
+        for group in groups:
+            results[group] = {'hosts': []}
+            for host in groups[group]:
+                hostname = self._get_hostname(host, hostnames)
+                if not hostname:
+                    continue
+                results[group]['hosts'].append(hostname)
+                h = self.inventory.get_host(hostname)
+                results['_meta']['hostvars'][h.name] = h.vars
         return results
 
     def _add_hosts(self, hosts, group, hostnames):
@@ -577,8 +445,8 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
             if not hostname:
                 continue
             self.inventory.add_host(hostname, group=group)
-            for hostvar in host.instance_data.keys():
-                self.inventory.set_variable(hostname, hostvar, host.instance_data[hostvar])
+            for hostvar in host.keys():
+                self.inventory.set_variable(hostname, hostvar, host[hostvar])
 
     def _set_credentials(self):
         '''
@@ -600,34 +468,22 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
             :param path: the path to the inventory config file
             :return the contents of the config file
         '''
-        if not self.verify_file(path):
+        if super(InventoryModule, self).verify_file(path):
+            if path.endswith('.aws_ec2.yml' or '.aws_ec2.yaml'):
+                return self._read_config_data(path)
+        else:
             raise AnsibleParserError("Not a ec2 inventory plugin configuration file")
-        return self._read_config_data(path)
-
-    def _set_cache(self, path, options):
-        '''
-            :param inventory: an ansible.inventory.data.InventoryData object
-            :param path: the path to the inventory config file
-        '''
-        # get unique cache key
-        cache_key = self.get_cache_key(self.NAME, path)
-        cache_dir = options.get('cache_connection')
-        cache_timeout = options.get('cache_timeout')
-
-        return cache_key, cache_dir, cache_timeout
 
     def _get_query_options(self, config_data):
         '''
             :param config_data: contents of the inventory config file
-            :return A list of region strings,
+            :return A list of regions to query,
                     a list of boto3 filter dicts,
-                    a list of inventory groups,
                     a list of possible hostnames in order of preference
                     a boolean to indicate whether to fail on permission errors
         '''
         options = {'regions': {'type_to_be': list, 'value': config_data.get('regions', [])},
                    'filters': {'type_to_be': dict, 'value': config_data.get('filters', {})},
-                   'group_by': {'type_to_be': list, 'value': config_data.get('group_by', [])},
                    'hostnames': {'type_to_be': list, 'value': config_data.get('hostnames', [])},
                    'strict_permissions': {'type_to_be': bool, 'value': config_data.get('strict_permissions', True)}}
 
@@ -637,11 +493,10 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
 
         regions = options['regions']['value']
         filters = ansible_dict_to_boto3_filter_list(options['filters']['value'])
-        group_by = options['group_by']['value']
         hostnames = options['hostnames']['value']
         strict_permissions = options['strict_permissions']['value']
 
-        return regions, filters, group_by, hostnames, strict_permissions
+        return regions, filters, hostnames, strict_permissions
 
     def _validate_option(self, name, desired_type, option_value):
         '''
@@ -662,15 +517,6 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
 
         return option_value
 
-    def verify_file(self, path):
-        '''
-            :param path: the path to the inventory config file
-            :return True if the config file has a valid name
-        '''
-        if super(InventoryModule, self).verify_file(path):
-            if path.endswith('.aws_ec2.yml' or '.aws_ec2.yaml'):
-                return True
-
     def parse(self, inventory, loader, path, cache=True):
         super(InventoryModule, self).parse(inventory, loader, path)
 
@@ -678,14 +524,16 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
         self._set_credentials()
 
         # get user specifications
-        regions, filters, group_by, hostnames, strict_permissions = self._get_query_options(config_data)
+        regions, filters, hostnames, strict_permissions = self._get_query_options(config_data)
 
         # Cache
         using_current_cache = False
         meta_cache = cache  # False if meta: refresh_inventory or cli option --flush-cache is used
 
-        cache = self._options['cache']
-        cache_key, cache_connection, cache_timeout = self._set_cache(path, self._options)
+        cache = self._options.get('cache')
+        cache_key = self.get_cache_key(self.NAME, path)
+        cache_connection = self._options.get('cache_connection')
+        cache_timeout = self._options.get('cache_timeout')
         cache_path = cache_connection + "/" + cache_key
 
         if cache and not cache_connection:
@@ -706,7 +554,7 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
                 results = self.cache._load(cache_path)
             self._populate_from_source(results)
         else:
-            results = self._query(regions, filters, group_by, strict_permissions)
+            results = self._query(regions, filters, strict_permissions)
             self._populate(results, hostnames)
             formatted_inventory = self._format_inventory(results, hostnames)
 
