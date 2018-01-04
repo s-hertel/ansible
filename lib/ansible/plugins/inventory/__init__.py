@@ -194,12 +194,9 @@ class BaseInventoryPlugin(AnsiblePlugin):
         return config
 
     def _set_cache_options(self, options):
-        try:
-            self.cache = InventoryFileCacheModule(plugin_name=options.get('cache_plugin'),
-                                                  timeout=options.get('cache_timeout'),
-                                                  cache_dir=options.get('cache_connection'))
-        except AttributeError as e:
-            pass
+        self.cache = InventoryFileCacheModule(plugin_name=options.get('cache_plugin'),
+                                              timeout=options.get('cache_timeout'),
+                                              cache_dir=options.get('cache_connection'))
 
     def _consume_options(self, data):
         ''' update existing options from file data'''
@@ -226,8 +223,8 @@ class Cacheable(object):
 
     _cache = {}
 
-    def get_cache_key(self, name, path):
-        return name + "_" + self._get_cache_prefix(path) + "_" + self._get_config_identifier(path)
+    def get_cache_key(self, path):
+        return "{0}_{1}_{2}".format(self.NAME, self._get_cache_prefix(path), self._get_config_identifier(path))
 
     def _get_cache_prefix(self, path):
         ''' create predictable unique prefix for plugin/inventory '''
@@ -249,21 +246,6 @@ class Cacheable(object):
 
     def clear_cache(self):
         self._cache = {}
-
-    def _valid_cache(self, directory, filename, timeout):
-        cache_path = "{0}/{1}".format(directory, filename)
-        if not os.path.isdir(directory):
-            raise AnsibleError("Cache directory {0} does not exist.".format(directory))
-        if os.path.isfile(cache_path):
-            return not self._needs_reset(cache_path, timeout)
-        elif not os.path.exists(cache_path):
-            return False
-        else:
-            raise AnsibleError("Cache {0} is not a file.".format(cache_path))
-
-    def _needs_reset(self, path, timeout):
-        last_cache_update = os.path.getmtime(path)
-        return not (last_cache_update + timeout > time())
 
 
 class Constructable(object):

@@ -526,39 +526,28 @@ class InventoryModule(BaseInventoryPlugin, Cacheable):
         # get user specifications
         regions, filters, hostnames, strict_permissions = self._get_query_options(config_data)
 
-        # Cache
-        using_current_cache = False
-        meta_cache = cache  # False if meta: refresh_inventory or cli option --flush-cache is used
-
-        cache = self._options.get('cache')
-        cache_key = self.get_cache_key(self.NAME, path)
-        cache_connection = self._options.get('cache_connection')
-        cache_timeout = self._options.get('cache_timeout')
-        cache_path = cache_connection + "/" + cache_key
-
-        if cache and not cache_connection:
-            raise AnsibleError("Must specify a cache directory using ini option cache_connection in the inventory section, "
-                               "or using env var ANSIBLE_INVENTORY_CACHE_CONNECTION.")
-
+        # false when refresh_cache or --flush-cache is used
         if cache:
-            if meta_cache and self._valid_cache(cache_connection, cache_key, cache_timeout):
-                using_current_cache = True
+            # get the user-specified directive
+            cache = self._options.get('cache')
+        cache_key = self.get_cache_key(path)
 
         # Generate inventory
-        results = {}
         formatted_inventory = {}
-        if using_current_cache:
-            if self._cache.get(cache_key):
-                results = self._cache[cache_key]
+        cache_needs_update = False
+        if cache:
+            try:
+                results = self.cache.get(cache_key)
+            except KeyError:
+                # if cache expires or cache file doesn't exist
+                cache_needs_update = True
             else:
-                results = self.cache._load(cache_path)
-            self._populate_from_source(results)
-        else:
+                self._populate_from_source(results)
+
+        if not cache or cache_needs_update:
             results = self._query(regions, filters, strict_permissions)
             self._populate(results, hostnames)
             formatted_inventory = self._format_inventory(results, hostnames)
 
-        # Update cache
-        if cache and not using_current_cache:
-            self._cache[cache_key] = jsonify(formatted_inventory, sort_keys=True, indent=4)
-            self.cache._dump(formatted_inventory, cache_path)
+        if cache_needs_update:
+            self.cache.set(cache_key, formatted_inventory)

@@ -79,14 +79,24 @@ class BaseFileCacheModule(BaseCacheModule):
         self.plugin_name = self.__module__.split('.')[-1]
         self._timeout = float(C.CACHE_PLUGIN_TIMEOUT)
         self._cache = {}
-        self._cache_dir = None
+        self._cache_dir = self._get_cache_connection(C.CACHE_PLUGIN_CONNECTION)
+        self._set_inventory_cache_override(**kwargs)
+        self.validate_cache_connection()
 
-        if C.CACHE_PLUGIN_CONNECTION:
-            # expects a dir path
-            self._cache_dir = os.path.expanduser(os.path.expandvars(C.CACHE_PLUGIN_CONNECTION))
+    def _get_cache_connection(self, source):
+        if source:
+            try:
+                return os.path.expanduser(os.path.expandvars(source))
+            except TypeError:
+                pass
 
-        self.set_inventory_cache_override(**kwargs)
+    def _set_inventory_cache_override(self, **kwargs):
+        if kwargs.get('cache_timeout'):
+            self._timeout = kwargs.get('cache_timeout')
+        if kwargs.get('cache_connection'):
+            self._cache_dir = self._get_cache_connection(kwargs.get('cache_connection'))
 
+    def validate_cache_connection(self):
         if not self._cache_dir:
             raise AnsibleError("error, '%s' cache plugin requires the 'fact_caching_connection' config option "
                                "to be set (to a writeable directory path)" % self.plugin_name)
@@ -101,12 +111,6 @@ class BaseFileCacheModule(BaseCacheModule):
                 if not os.access(self._cache_dir, x):
                     raise AnsibleError("error in '%s' cache, configured path (%s) does not have necessary permissions (rwx), disabling plugin" % (
                         self.plugin_name, self._cache_dir))
-
-    def set_inventory_cache_override(self, **kwargs):
-        if kwargs.get('cache_timeout'):
-            self._timeout = kwargs.get('cache_timeout')
-        if kwargs.get('cache_connection'):
-            self._cache_dir = os.path.expanduser(os.path.expandvars(kwargs.get('cache_connection')))
 
     def get(self, key):
         """ This checks the in memory cache first as the fact was not expired at 'gather time'
@@ -300,8 +304,38 @@ class InventoryFileCacheModule(BaseFileCacheModule):
     """
     def __init__(self, plugin_name, timeout, cache_dir):
 
-        super(InventoryFileCacheModule, self).__init__(cache_connection=cache_dir, cache_timeout=timeout)
+        self.plugin_name = plugin_name
+        self._timeout = timeout
+        self._cache = {}
+        self._cache_dir = self._get_cache_connection(cache_dir)
+        self.validate_cache_connection()
         self._plugin = self.get_plugin(plugin_name)
+
+    def validate_cache_connection(self):
+        cache_connection_set = True
+        try:
+            cache_connection_set = os.path.exists(self._cache_dir)
+        except TypeError:
+            cache_connection_set = False
+        try:
+            super(InventoryFileCacheModule, self).validate_cache_connection()
+        except AnsibleError:
+            cache_connection_set = False
+
+        if not cache_connection_set:
+            raise AnsibleError("error, '%s' inventory cache plugin requires the one of the following to be set:\n"
+                               "ansible.cfg:\n[default]: fact_caching_connection,\n[inventory]: cache_connection;\n"
+                               "Environment:\nANSIBLE_INVENTORY_CACHE_CONNECTION,\nANSIBLE_CACHE_PLUGIN_CONNECTION."
+                               "to be set to a writeable directory path" % self.plugin_name)
+
+    def get(self, cache_key):
+
+        if not self.contains(cache_key):
+            # Check if cache file exists
+            raise KeyError
+
+        return super(InventoryFileCacheModule, self).get(cache_key)
+
 
     def get_plugin(self, plugin_name):
         plugin = cache_loader.get(plugin_name, cache_connection=self._cache_dir, cache_timeout=self._timeout)
