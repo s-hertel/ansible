@@ -576,6 +576,7 @@ class Condition(object):
             extra = []
         changed = bool(missing or extra)
         if changed:
+            update['ChangeToken'] = get_change_token(self.client, self.module)
             update['Updates'] = missing + extra
             func = getattr(self.client, 'update_' + self.method_suffix)
             try:
