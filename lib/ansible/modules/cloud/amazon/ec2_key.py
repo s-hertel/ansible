@@ -135,7 +135,7 @@ from ansible.module_utils.ec2 import ec2_argument_spec, get_aws_connection_info,
 from ansible.module_utils._text import to_bytes
 
 try:
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError, BotoCoreError
 except ImportError:
     pass
 
@@ -198,15 +198,19 @@ def create_key_pair(module, ec2_client, name, key_material, force):
     else:
         # key doesn't exist, create it now
         key_data = None
-        if not module.check_mode:
-            if key_material:
-                key = import_key_pair(module, ec2_client, name, key_material)
-            else:
-                try:
-                    key = ec2_client.create_key_pair(KeyName=name)
-                except ClientError as err:
-                    module.fail_json_aws(err, msg="error creating key")
-            key_data = extract_key_data(key)
+        if key_material:
+            key = import_key_pair(module, ec2_client, name, key_material)
+        else:
+            try:
+                params = {'KeyName': name}
+                key = module.call_method(client=ec2_client,
+                                         method='create_key_pair',
+                                         output_to_input={'KeyName': 'KeyName'},
+                                         extra_output={},
+                                         params=params)
+            except (ClientError, BotoCoreError) as err:
+                module.fail_json_aws(err, msg="error creating key")
+        key_data = extract_key_data(key)
         module.exit_json(changed=True, key=key_data, msg="key pair created")
 
 
@@ -214,7 +218,7 @@ def import_key_pair(module, ec2_client, name, key_material):
 
     try:
         key = ec2_client.import_key_pair(KeyName=name, PublicKeyMaterial=to_bytes(key_material))
-    except ClientError as err:
+    except (ClientError, BotoCoreError) as err:
         module.fail_json_aws(err, msg="error importing key")
     return key
 
@@ -223,11 +227,14 @@ def delete_key_pair(module, ec2_client, name, finish_task=True):
 
     key = find_key_pair(module, ec2_client, name)
     if key:
-        if not module.check_mode:
-            try:
-                ec2_client.delete_key_pair(KeyName=name)
-            except ClientError as err:
-                module.fail_json_aws(err, msg="error deleting key")
+        try:
+            module.call_method(client=ec2_client,
+                               method='delete_key_pair',
+                               comp_method='describe_key_pairs',
+                               params={'KeyName': name},
+                               comp_method_params={'KeyNames': [name]})
+        except (ClientError, BotoCoreError) as err:
+            module.fail_json_aws(err, msg="error deleting key")
         if not finish_task:
             return
         module.exit_json(changed=True, key=None, msg="key deleted")
