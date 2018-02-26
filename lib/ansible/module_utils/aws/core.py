@@ -51,6 +51,13 @@ from ansible.module_utils._text import to_native
 from ansible.module_utils.ec2 import HAS_BOTO3, camel_dict_to_snake_dict, ec2_argument_spec, boto3_conn, get_aws_connection_info
 import traceback
 
+try:
+    from botocore.utils import ArgumentGenerator
+    from botocore.stub import Stubber
+    HAS_DIFF_REQ = True
+except ImportError:
+    HAS_DIFF_REQ = False
+
 # We will also export HAS_BOTO3 so end user modules can use it.
 __all__ = ('AnsibleAWSModule', 'HAS_BOTO3',)
 
@@ -100,6 +107,7 @@ class AnsibleAWSModule(object):
                 msg='Python modules "botocore" or "boto3" are missing, please install both')
 
         self.check_mode = self._module.check_mode
+        self._diff = self._module._diff
         self._name = self._module._name
 
     @property
@@ -158,3 +166,36 @@ class AnsibleAWSModule(object):
         else:
             self._module.fail_json(msg=message, exception=last_traceback,
                                    **camel_dict_to_snake_dict(response))
+
+    def call_method(self, client, method, output_to_input={}, extra_output={}, **params):
+        '''
+            output_to_input is a mapping of any output parameters that have a corresponding input parameter
+            extra_output is a mapping of any output parameters that might have a known value but have no corresponding input - useful if a module only uses exit_json after describing a would-be created/modified thing
+        '''
+        if self._diff and HAS_DIFF_REQ:
+            arg_gen = ArgumentGenerator()
+            resp_stub = Stubber(client)
+            op = client.meta.method_to_api_mapping.get(method)
+            output_shape = arg_gen.generate_skeleton(client._service_model.operation_model(op).output_shape)
+
+            # Generate response
+            resp = {}
+            simple_dict_output = dict(output_shape)
+            for output_key in simple_dict_output.keys():
+                # FIXME work with nested return structures
+                if output_key in output_to_input:
+                    resp[output_key] = params.get(output_to_input[output_key])
+                elif output_key in extra_output:
+                    resp[output_key] = extra_output[output_key]
+                else:
+                    resp[output_key] = simple_dict_output[output_key]
+
+            # Validate input parameters but mock out the response
+            resp_stub.add_response(method, resp)
+            with resp_stub:
+                return getattr(client, method)(**params)
+        elif self._diff:
+            self.fail_json(msg="botocore.utils and botocore.stub are required for diff mode")
+
+        else:
+            return getattr(client, method)(**params)
