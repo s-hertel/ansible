@@ -108,6 +108,7 @@ class AnsibleAWSModule(object):
 
         self.check_mode = self._module.check_mode
         self._diff = self._module._diff
+        self.difflist = []
         self._name = self._module._name
 
     @property
@@ -115,6 +116,8 @@ class AnsibleAWSModule(object):
         return self._module.params
 
     def exit_json(self, *args, **kwargs):
+        if self._diff:
+            kwargs['diff'] = self.difflist
         return self._module.exit_json(*args, **kwargs)
 
     def fail_json(self, *args, **kwargs):
@@ -167,35 +170,70 @@ class AnsibleAWSModule(object):
             self._module.fail_json(msg=message, exception=last_traceback,
                                    **camel_dict_to_snake_dict(response))
 
-    def call_method(self, client, method, output_to_input={}, extra_output={}, **params):
+    def call_with_check_mode(self, client, method, output_to_input={}, extra_output={}, params={}):
+
+        arg_gen = ArgumentGenerator()
+        resp_stub = Stubber(client)
+        op = client.meta.method_to_api_mapping.get(method)
+        output_shape = client._service_model.operation_model(op).output_shape
+        if not output_shape:
+            return None
+        output_args = arg_gen.generate_skeleton(output_shape)
+
+        # Generate response for check mode
+        resp = {}
+        simple_dict_output = dict(output_args)
+        for output_key in simple_dict_output.keys():
+            # FIXME work with nested return structures
+            if output_key in output_to_input:
+                resp[output_key] = params.get(output_to_input[output_key])
+            elif output_key in extra_output:
+                resp[output_key] = extra_output[output_key]
+            else:
+                resp[output_key] = simple_dict_output[output_key]
+
+        # Validate input parameters
+        resp_stub.add_response(method, resp)
+        with resp_stub:
+            return getattr(client, method)(**params)
+
+    def call_method(self, client, method, comp_method=None, output_to_input={}, extra_output={}, params={}, comp_method_params={}):
         '''
+            handles check and diff mode
+
             output_to_input is a mapping of any output parameters that have a corresponding input parameter
             extra_output is a mapping of any output parameters that might have a known value but have no corresponding input - useful if a module only uses exit_json after describing a would-be created/modified thing
         '''
         if self._diff and HAS_DIFF_REQ:
-            arg_gen = ArgumentGenerator()
-            resp_stub = Stubber(client)
-            op = client.meta.method_to_api_mapping.get(method)
-            output_shape = arg_gen.generate_skeleton(client._service_model.operation_model(op).output_shape)
+            diff = {}
 
-            # Generate response
-            resp = {}
-            simple_dict_output = dict(output_shape)
-            for output_key in simple_dict_output.keys():
-                # FIXME work with nested return structures
-                if output_key in output_to_input:
-                    resp[output_key] = params.get(output_to_input[output_key])
-                elif output_key in extra_output:
-                    resp[output_key] = extra_output[output_key]
-                else:
-                    resp[output_key] = simple_dict_output[output_key]
+            # Get before
+            if comp_method:
+                if not any([comp_method.startswith(r) for r in ('get', 'describe', 'list')]):
+                    self.fail_json(msg="This may be an error. The compare method should be a read-only method")
+                before = getattr(client, comp_method)(**comp_method_params)
+                diff['before'] = camel_dict_to_snake_dict(before)
+            else:
+                diff['before'] = {}
 
-            # Validate input parameters but mock out the response
-            resp_stub.add_response(method, resp)
-            with resp_stub:
-                return getattr(client, method)(**params)
+            if self.check_mode:
+                response = self.call_with_check_mode(client, method, output_to_input,
+                                                     extra_output, params)
+            else:
+                response = getattr(client, method)(**params)
+
+            if response is not None:
+                response = camel_dict_to_snake_dict(response)
+            diff['after'] = response
+            self.difflist.append(diff)
+
+            return response
+
         elif self._diff:
+            # don't think this will ever happen if HAS_BOTO3 is true?
             self.fail_json(msg="botocore.utils and botocore.stub are required for diff mode")
-
+        elif self.check_mode:
+            return self.call_with_check_mode(client, method, output_to_input,
+                                             extra_output, params)
         else:
             return getattr(client, method)(**params)
