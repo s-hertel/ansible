@@ -46,10 +46,12 @@ additional methods for connecting to AWS using the standard module arguments
 
 """
 
+from ansible.module_utils.six import string_types
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils._text import to_native
 from ansible.module_utils.ec2 import HAS_BOTO3, camel_dict_to_snake_dict, ec2_argument_spec, boto3_conn, get_aws_connection_info
 import traceback
+from collections import OrderedDict
 
 try:
     from botocore.utils import ArgumentGenerator
@@ -170,6 +172,32 @@ class AnsibleAWSModule(object):
             self._module.fail_json(msg=message, exception=last_traceback,
                                    **camel_dict_to_snake_dict(response))
 
+    def create_response_dict(self, item):
+        if isinstance(item, string_types):
+            return item
+        elif isinstance(item, list):
+            return [self.create_response_dict(i) for i in item]
+        elif isinstance(item, OrderedDict):
+            item = dict(item)
+            for k, v in item.items():
+                item[k] = self.create_response_dict(v)
+        return item
+
+    def populate_response(self, response, output_to_input, extra_output, params):
+        if isinstance(response, string_types):
+            return response
+        elif isinstance(response, list):
+            return [self.populate_response(i, output_to_input, extra_output, params) for i in response]
+        elif isinstance(response, dict):
+            for output_key, v in dict(response).items():
+                if output_key in output_to_input:
+                    response[output_key] = params.get(output_to_input[output_key])
+                elif output_key in extra_output:
+                    response[output_key] = extra_output[output_key]
+                else:
+                    response[output_key] = self.populate_response(v, output_to_input, extra_output, params)
+        return response
+
     def call_with_check_mode(self, client, method, output_to_input={}, extra_output={}, params={}):
 
         arg_gen = ArgumentGenerator()
@@ -181,16 +209,8 @@ class AnsibleAWSModule(object):
         output_args = arg_gen.generate_skeleton(output_shape)
 
         # Generate response for check mode
-        resp = {}
-        simple_dict_output = dict(output_args)
-        for output_key in simple_dict_output.keys():
-            # FIXME work with nested return structures
-            if output_key in output_to_input:
-                resp[output_key] = params.get(output_to_input[output_key])
-            elif output_key in extra_output:
-                resp[output_key] = extra_output[output_key]
-            else:
-                resp[output_key] = simple_dict_output[output_key]
+        dict_output = self.create_response_dict(output_args)
+        resp = self.populate_response(dict_output, output_to_input, extra_output, params)
 
         # Validate input parameters
         resp_stub.add_response(method, resp)
@@ -209,10 +229,16 @@ class AnsibleAWSModule(object):
 
             # Get before
             if comp_method:
-                if not any([comp_method.startswith(r) for r in ('get', 'describe', 'list')]):
+                if not any(comp_method.startswith(r) for r in ('get', 'describe', 'list')):
                     self.fail_json(msg="This may be an error. The compare method should be a read-only method")
                 before = getattr(client, comp_method)(**comp_method_params)
-                diff['before'] = camel_dict_to_snake_dict(before)
+                before.pop('ResponseMetadata', None)
+                before = camel_dict_to_snake_dict(before)
+                if len(before) == 1 and isinstance(before, dict):
+                    before = before[before.keys()[0]]
+                if len(before) == 1 and isinstance(before, list):
+                    before = before[0]
+                diff['before'] = before
             else:
                 diff['before'] = {}
 
@@ -223,8 +249,12 @@ class AnsibleAWSModule(object):
                 response = getattr(client, method)(**params)
 
             if response is not None:
-                response = camel_dict_to_snake_dict(response)
-            diff['after'] = response
+                after_response = camel_dict_to_snake_dict(dict(response))
+                after_response.pop('ResponseMetadata', None)
+            else:
+                after_response = {}
+
+            diff['after'] = after_response
             self.difflist.append(diff)
 
             return response
