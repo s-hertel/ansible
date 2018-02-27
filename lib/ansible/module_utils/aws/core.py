@@ -224,44 +224,41 @@ class AnsibleAWSModule(object):
             output_to_input is a mapping of any output parameters that have a corresponding input parameter
             extra_output is a mapping of any output parameters that might have a known value but have no corresponding input - useful if a module only uses exit_json after describing a would-be created/modified thing
         '''
-        if self._diff and HAS_DIFF_REQ:
+        if self.check_mode and not HAS_DIFF_REQ:
+            self.fail_json(msg="Try uninstalling and reinstalling botocore: botocore.utils and botocore.stub are required.")
+        if self._diff:
             diff = {}
 
             # Get before
             if comp_method:
                 if not any(comp_method.startswith(r) for r in ('get', 'describe', 'list')):
                     self.fail_json(msg="This may be an error. The compare method should be a read-only method")
-                before = getattr(client, comp_method)(**comp_method_params)
-                before.pop('ResponseMetadata', None)
-                before = camel_dict_to_snake_dict(before)
-                if len(before) == 1 and isinstance(before, dict):
-                    before = before[before.keys()[0]]
-                if len(before) == 1 and isinstance(before, list):
-                    before = before[0]
-                diff['before'] = before
+                resource_before = camel_dict_to_snake_dict(getattr(client, comp_method)(**comp_method_params))
+                resource_before.pop('response_metadata', None)
+                if isinstance(resource_before, dict) and len(resource_before) == 1:
+                    resource_before = resource_before[resource_before.keys()[0]]
+                if isinstance(resource_before, list) and len(resource_before) == 1:
+                    resource_before = resource_before[0]
+                diff['before'] = resource_before
             else:
                 diff['before'] = {}
 
+            # Get after
             if self.check_mode:
                 response = self.call_with_check_mode(client, method, output_to_input,
                                                      extra_output, params)
             else:
                 response = getattr(client, method)(**params)
-
             if response is not None:
-                after_response = camel_dict_to_snake_dict(dict(response))
-                after_response.pop('ResponseMetadata', None)
+                resource_after = camel_dict_to_snake_dict(dict(response))
+                resource_after.pop('response_metadata', None)
             else:
-                after_response = {}
+                resource_after = {}
+            diff['after'] = resource_after
 
-            diff['after'] = after_response
             self.difflist.append(diff)
 
             return response
-
-        elif self._diff:
-            # don't think this will ever happen if HAS_BOTO3 is true?
-            self.fail_json(msg="botocore.utils and botocore.stub are required for diff mode")
         elif self.check_mode:
             return self.call_with_check_mode(client, method, output_to_input,
                                              extra_output, params)
