@@ -658,14 +658,16 @@ def check_rule_description_update(client, module, rule_id, rule, rule_type, gran
     if 'rule_desc' in rule:
         new_rule_description = rule.get('rule_desc') or ''
         if grant_type == 'group':
-            if new_rule_description != current_rules[rule_id][0]['UserIdGroupPairs'][0].get('Description', ''):
-                changed = True
-        if grant_type == 'ip':
+            current_rule_description = current_rules[rule_id][0]['UserIdGroupPairs'][0].get('Description', '')
+        else:
             current_rule_description = current_rules[rule_id][0].get('IpRanges') or current_rules[rule_id][0].get('Ipv6Ranges')
-            if new_rule_description != current_rule_description[0].get('Description'):
-                changed = True
+            current_rule_description = current_rule_description[0].get('Description')
+        if new_rule_description != current_rule_description:
+            changed = True
+
         if changed and not module.check_mode:
             update_rules_description(module, client, rule_type, group['GroupId'], ip_permission)
+
     return changed
 
 
@@ -761,8 +763,10 @@ def main():
         if group:
             # found a match, delete it
             try:
-                if not module.check_mode:
-                    client.delete_security_group(GroupId=group['GroupId'])
+                module.call_method(client, method='delete_security_group',
+                                   comp_method='describe_security_groups',
+                                   params={'GroupId': group['GroupId']},
+                                   comp_method_params={'GroupIds': [group['GroupId']]})
             except (BotoCoreError, ClientError) as e:
                 module.fail_json_aws(e, msg="Unable to delete security group '%s'" % group)
             else:
@@ -783,20 +787,32 @@ def main():
         # if the group doesn't exist, create it now
         else:
             # no match found, create it
-            if not module.check_mode:
-                params = dict(GroupName=name, Description=description)
-                if vpc_id:
-                    params['VpcId'] = vpc_id
-                try:
-                    group = client.create_security_group(**params)
-                except (BotoCoreError, ClientError) as e:
-                    module.fail_json_aws(e, msg="Unable to create security group")
+            params = dict(GroupName=name, Description=description)
+            if vpc_id:
+                params['VpcId'] = vpc_id
+            try:
+                group = module.call_method(client, method='create_security_group',
+                                           extra_output={'GroupId': 'sg-xxxxxxxx'}, params=params)
+            except (BotoCoreError, ClientError) as e:
+                module.fail_json_aws(e, msg="Unable to create security group")
 
-                # When a group is created, an egress_rule ALLOW ALL
-                # to 0.0.0.0/0 is added automatically but it's not
-                # reflected in the object returned by the AWS API
-                # call. We re-read the group for getting an updated object
-                # amazon sometimes takes a couple seconds to update the security group so wait till it exists
+            # When a group is created, an egress_rule ALLOW ALL
+            # to 0.0.0.0/0 is added automatically but it's not
+            # reflected in the object returned by the AWS API
+            # call. We re-read the group for getting an updated object
+            # amazon sometimes takes a couple seconds to update the security group so wait till it exists
+            if module.check_mode:
+                # Use the params from the create call to help populate the describe results
+                extra_output = dict(params)
+                extra_output['GroupId'] = group['GroupId']
+                extra_output['IpPermissionsEgress'] = [{'IpProtocol': '-1', 'PrefixListIds': [],
+                                                       'IpRanges': [{'CidrIp': '0.0.0.0/0'}],
+                                                       'UserIdGroupPairs': [], 'Ipv6Ranges': []}]
+                extra_output['IpPermissions'] = []
+                group = module.call_method(client, method='describe_security_groups',
+                                           extra_output=extra_output,
+                                           params={'GroupIds': [group['GroupId']]})['SecurityGroups'][0]
+            else:
                 while True:
                     group = get_security_groups_with_backoff(client, GroupIds=[group['GroupId']])['SecurityGroups'][0]
                     if group.get('VpcId') and not group.get('IpPermissionsEgress'):
@@ -861,11 +877,45 @@ def main():
                          ip_permission.get('UserIdGroupPairs', [])]
                     sg_rules['user_rules'].append(Rule(rule=rule, rule_type=sg_rules['type'], rule_id=rule_id,
                                                        ip_permission=ip_permission, group_id=group_id, ipv4=ipv4, ipv6=ipv6,
-                                                       target_group_created=target_group_created, grant_type='group')
+                                                       target_group_created=target_group_created, grant_type='group'))
                 if ipv4:
                     sg_rules['user_rules'].extend(add_cidr_ip_list(module, ipv4, "ipv4", rule, sg_rules['type'], group['GroupId']))
                 if ipv6:
                     sg_rules['user_rules'].extend(add_cidr_ip_list(module, ipv6, "ipv6", rule, sg_rules['type'], group['GroupId']))
+
+        # Find ingress and egress rules
+        new_ingress = [r.ip_permission for r in user_ingress_rules if r.rule_id not in current_ingress]
+        new_egress = [r.ip_permission for r in user_egress_rules if r.rule_id not in current_egress]
+        present_ingress = [r for r in user_ingress_rules if r.rule_id in current_ingress]
+        present_egress = [r for r in user_egress_rules if r.rule_id in current_egress]
+        if rules_egress is None and vpc_id is not None:
+            # when no egress rules are specified and we're in a VPC,
+            # we add in a default allow all out rule, which was the
+            # default behavior before egress rules were added
+            rule = {'IpProtocol': '-1', 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+            rule_id = make_rule_key('out', rule, group['GroupId'], '0.0.0.0/0')
+            if rule_id not in current_egress:
+                new_egress.append(rule)
+            else:
+                present_egress.append(Rule(rule=rule, rule_type='out', rule_id=rule_id,
+                                      ip_permission=rule, group_id=group['GroupId'], ipv4='0.0.0.0/0',
+                                      ipv6=None, target_group_created=False, grant_type='ip'))
+        # Authorize new rules
+        if new_ingress:
+            changed = True
+            authorize(client, module, new_ingress, group['GroupId'], 'in')
+        if new_egress:
+            changed = True
+            authorize(client, module, new_egress, group['GroupId'], 'out')
+        # Update existing rules
+        for r in present_ingress:
+            changed = check_rule_description_update(client, module, r.rule_id, r.rule,
+                                                    r.rule_type, r.grant_type, r.ip_permission,
+                                                    group, current_ingress, changed)
+        for r in present_egress:
+            changed = check_rule_description_update(client, module, r.rule_id, r.rule,
+                                                    r.rule_type, r.grant_type, r.ip_permission,
+                                                    group, current_egress, changed)
 
         # Find ingress and egress rules that need to be purged
         if purge_rules:
@@ -882,37 +932,7 @@ def main():
                         if not rule_id.endswith('0.0.0.0/0'):
                             purge_egress_rule_ids.append(rule_id)
 
-        # Find ingress and egress rules to authorize
-        new_ingress = [r.ip_permission for r in user_ingress_rules if r.rule_id not in current_ingress]
-        new_egress = [r.ip_permission for r in user_egress_rules if r.rule_id not in current_egress]
-        if rules_egress is None and vpc_id is not None:
-            # when no egress rules are specified and we're in a VPC,
-            # we add in a default allow all out rule, which was the
-            # default behavior before egress rules were added
-            rule = {'IpProtocol': '-1', 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
-            rule_id = make_rule_key('out', rule, group['GroupId'], '0.0.0.0/0')
-            if rule_id not in current_egress:
-                new_egress.append(rule)
-        if new_ingress:
-            changed = True
-            authorize(client, module, new_ingress, group['GroupId'], 'in')
-        if new_egress:
-            changed = True
-            authorize(client, module, new_egress, group['GroupId'], 'out')
-
-        # Find if any ingress or egress rules need descriptions updated
-        present_ingress = [r for r in user_ingress_rules if r.rule_id in current_ingress]
-        present_egress = [r for r in user_egress_rules if r.rule_id in current_egress]
-        for r in present_ingress:
-            changed = check_rule_description_update(client, module, r.rule_id, r.rule,
-                                                    r.rule_type, r.grant_type, r.ip_permission,
-                                                    group, current_ingress, changed)
-        for r in present_egress:
-            changed = check_rule_description_update(client, module, r.rule_id, r.rule,
-                                                    r.rule_type, r.grant_type, r.ip_permission,
-                                                    group, current_egress, changed)
-
-        # Find ingress and egress rules to revoke
+        # Revoke rules
         for rule_dict in ({'rules': purge_ingress_rule_ids, 'current_rules': current_ingress, 'type': 'in'},
                           {'rules': purge_egress_rule_ids, 'current_rules': current_egress, 'type': 'out'}):
             revoke_ip_permissions = []
@@ -925,7 +945,25 @@ def main():
                 revoke(client, module, revoke_ip_permissions, group['GroupId'], rule_dict['type'])
 
     if group:
-        security_group = get_security_groups_with_backoff(client, GroupIds=[group['GroupId']])['SecurityGroups'][0]
+        if module.check_mode and group['GroupId'] == 'sg-xxxxxxxx':
+            # Use the params from the mocked-out create call to help populate the describe results
+            extra_output = dict(extra_output)
+            security_group = module.call_method(client, method='describe_security_groups',
+                                                extra_output=extra_output,
+                                                params={'GroupIds': [group['GroupId']]})['SecurityGroups'][0]
+        else:
+            security_group = get_security_groups_with_backoff(client, GroupIds=[group['GroupId']])['SecurityGroups'][0]
+        if changed and module._diff:
+            if tags is not None:
+                after_tags = [{'Key': key, 'Value': value} for key, value in tags.items()]
+            else:
+                after_tags = group['Tags']
+            module.difflist.append({'before': {'IpPermissions': group['IpPermissions'],
+                                              'IpPermissionsEgress': group['IpPermissionsEgress'],
+                                              'Tags': group['Tags']},
+                                   'after': {'IpPermissions': [r.ip_permission for r in present_ingress] + new_ingress,
+                                             'IpPermissionsEgress': [r.ip_permission for r in present_egress] + new_egress,
+                                             'Tags': after_tags}})
         security_group = camel_dict_to_snake_dict(security_group)
         security_group['tags'] = boto3_tag_list_to_ansible_dict(security_group.get('tags', []),
                                                                 tag_name_key_name='key', tag_value_key_name='value')
