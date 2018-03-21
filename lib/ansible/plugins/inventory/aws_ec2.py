@@ -56,8 +56,6 @@ DOCUMENTATION = '''
 '''
 
 EXAMPLES = '''
-simple_config_file:
-
     plugin: aws_ec2
     boto_profile: aws_profile
     regions: # populate inventory with instances in these regions
@@ -74,7 +72,8 @@ simple_config_file:
     # ignores 403 errors rather than failing
     strict_permissions: False
     hostnames:
-      - tag:Name=Tag1,Name=Tag2
+      - tag:Name
+      - tag:Name=Tag1,Name=Tag2  # return specific hosts only
       - dns-name
 
     # constructed features may be used to create custom groups
@@ -87,7 +86,6 @@ simple_config_file:
         key: tags
         value:
           "Name": "Test"
-
 '''
 
 from ansible.errors import AnsibleError, AnsibleParserError
@@ -324,11 +322,15 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             tag_hostnames = tag_hostnames.split(',')
         else:
             tag_hostnames = [tag_hostnames]
+        tags = boto3_tag_list_to_ansible_dict(instance.get('Tags', []))
         for v in tag_hostnames:
-            tag_name, tag_value = v.split('=')
-            tags = boto3_tag_list_to_ansible_dict(instance.get('Tags', []))
-            if tags.get(tag_name) == tag_value:
-                return to_text(tag_name) + "_" + to_text(tag_value)
+            if '=' in v:
+                tag_name, tag_value = v.split('=')
+                if tags.get(tag_name) == tag_value:
+                    return to_text(tag_name) + "_" + to_text(tag_value)
+            else:
+                if v in tags:
+                    return to_text(v) + "_" + to_text(tags[v])
         return None
 
     def _get_hostname(self, instance, hostnames):
