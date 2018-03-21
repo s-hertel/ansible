@@ -253,7 +253,9 @@ class Constructable(object):
         ''' helper method for pluigns to compose variables for Ansible based on jinja2 expression and inventory vars'''
         t = self.templar
         t.set_available_variables(variables)
-        return t.do_template('%s%s%s' % (t.environment.variable_start_string, template, t.environment.variable_end_string), disable_lookups=True)
+        # use t.template as it better preserves the type of the template parameter
+        return t.template('%s%s%s' % (t.environment.variable_start_string, template, t.environment.variable_end_string),
+                          disable_lookups=True)
 
     def _set_composite_vars(self, compose, variables, host, strict=False):
         ''' loops over compose entries to create vars for hosts '''
@@ -292,23 +294,28 @@ class Constructable(object):
             for keyed in keys:
                 if keyed and isinstance(keyed, dict):
                     prefix = keyed.get('prefix', '')
+                    if prefix:
+                        prefix = prefix + "_"
                     key = keyed.get('key')
                     if key is not None:
                         try:
-                            groups = to_safe_group_name('%s_%s' % (prefix, self._compose(key, variables)))
+                            groups = self._compose(key, variables)
                         except Exception as e:
                             if strict:
                                 raise AnsibleOptionsError("Could not generate group on %s: %s" % (key, to_native(e)))
                             continue
                         if isinstance(groups, string_types):
                             groups = [groups]
+                        elif isinstance(groups, dict):
+                            groups = ["%s_%s" % (group_name, group_value) for (group_name, group_value) in groups.items()]
                         if isinstance(groups, list):
                             for group_name in groups:
-                                if group_name not in self.inventory.groups:
-                                    self.inventory.add_group(group_name)
-                                self.inventory.add_child(group_name, host)
+                                safe_group_name = to_safe_group_name('%s%s' % (prefix, group_name))
+                                if safe_group_name not in self.inventory.groups:
+                                    self.inventory.add_group(safe_group_name)
+                                self.inventory.add_child(safe_group_name, host)
                         else:
-                            raise AnsibleOptionsError("Invalid group name format, expected string or list of strings, got: %s" % type(groups))
+                            raise AnsibleOptionsError("Invalid group name format, expected string, dict or list of strings, got: %s" % type(groups))
                     else:
                         raise AnsibleOptionsError("No key supplied, invalid entry")
                 else:

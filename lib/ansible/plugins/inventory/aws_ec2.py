@@ -53,8 +53,6 @@ DOCUMENTATION = '''
         strict_permissions:
           description: By default if a 403 (Forbidden) is encountered this plugin will fail. You can set strict_permissions to
               False in the inventory config file which will allow 403 errors to be gracefully skipped.
-    notes:
-      - Inventory files must end in '.aws_ec2.yml' or '.aws_ec2.yaml'
 '''
 
 EXAMPLES = '''
@@ -88,6 +86,8 @@ keyed_groups:
     key: tags
   - prefix: instance_type
     key: instance_type
+  - key: 'security_groups|json_query("[].group_id")'
+    prefix: 'security_groups'
 '''
 
 from ansible.errors import AnsibleError, AnsibleParserError
