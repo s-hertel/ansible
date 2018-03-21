@@ -53,39 +53,41 @@ DOCUMENTATION = '''
         strict_permissions:
           description: By default if a 403 (Forbidden) is encountered this plugin will fail. You can set strict_permissions to
               False in the inventory config file which will allow 403 errors to be gracefully skipped.
+    notes:
+      - Inventory files must end in '.aws_ec2.yml' or '.aws_ec2.yaml'
 '''
 
 EXAMPLES = '''
-    plugin: aws_ec2
-    boto_profile: aws_profile
-    regions: # populate inventory with instances in these regions
-      - us-east-1
-      - us-east-2
-    filters:
-      # all instances with their `Environment` tag set to `dev`
-      tag:Environment: dev
-      # all dev and QA hosts
-      tag:Environment:
-        - dev
-        - qa
-      instance.group-id: sg-xxxxxxxx
-    # ignores 403 errors rather than failing
-    strict_permissions: False
-    hostnames:
-      - tag:Name
-      - tag:Name=Tag1,Name=Tag2  # return specific hosts only
-      - dns-name
+plugin: aws_ec2
+boto_profile: aws_profile
+regions: # populate inventory with instances in these regions
+  - us-east-1
+  - us-east-2
+filters:
+  # all instances with their `Environment` tag set to `dev`
+  tag:Environment: dev
+  # all dev and QA hosts
+  tag:Environment:
+    - dev
+    - qa
+  instance.group-id: sg-xxxxxxxx
+# ignores 403 errors rather than failing
+strict_permissions: False
+hostnames:
+  - tag:Name
+  - tag:Name=Tag1,Name=Tag2  # return specific hosts only
+  - dns-name
 
-    # constructed features may be used to create custom groups
-    strict: False
-    keyed_groups:
-      - prefix: arch
-        key: 'architecture'
-        value: 'x86_64'
-      - prefix: tag
-        key: tags
-        value:
-          "Name": "Test"
+# keyed_groups may be used to create custom groups
+strict: False
+keyed_groups:
+  - prefix: arch
+    key: 'architecture'
+    value: 'x86_64'
+  - prefix: tag
+    key: tags
+  - prefix: instance_type
+    key: instance_type
 '''
 
 from ansible.errors import AnsibleError, AnsibleParserError
