@@ -56,36 +56,38 @@ DOCUMENTATION = '''
 '''
 
 EXAMPLES = '''
-    plugin: aws_ec2
-    boto_profile: aws_profile
-    regions: # populate inventory with instances in these regions
-      - us-east-1
-      - us-east-2
-    filters:
-      # all instances with their `Environment` tag set to `dev`
-      tag:Environment: dev
-      # all dev and QA hosts
-      tag:Environment:
-        - dev
-        - qa
-      instance.group-id: sg-xxxxxxxx
-    # ignores 403 errors rather than failing
-    strict_permissions: False
-    hostnames:
-      - tag:Name
-      - tag:Name=Tag1,Name=Tag2  # return specific hosts only
-      - dns-name
+plugin: aws_ec2
+boto_profile: aws_profile
+regions: # populate inventory with instances in these regions
+  - us-east-1
+  - us-east-2
+filters:
+  # all instances with their `Environment` tag set to `dev`
+  tag:Environment: dev
+  # all dev and QA hosts
+  tag:Environment:
+    - dev
+    - qa
+  instance.group-id: sg-xxxxxxxx
+# ignores 403 errors rather than failing
+strict_permissions: False
+hostnames:
+  - tag:Name
+  - tag:Name=Tag1,Name=Tag2  # return specific hosts only
+  - dns-name
 
-    # constructed features may be used to create custom groups
-    strict: False
-    keyed_groups:
-      - prefix: arch
-        key: 'architecture'
-        value: 'x86_64'
-      - prefix: tag
-        key: tags
-        value:
-          "Name": "Test"
+# keyed_groups may be used to create custom groups
+strict: False
+keyed_groups:
+  - prefix: arch
+    key: 'architecture'
+    value: 'x86_64'
+  - prefix: tag
+    key: tags
+  - prefix: instance_type
+    key: instance_type
+  - key: 'security_groups|json_query("[].group_id")'
+    prefix: 'security_groups'
 '''
 
 from ansible.errors import AnsibleError, AnsibleParserError
