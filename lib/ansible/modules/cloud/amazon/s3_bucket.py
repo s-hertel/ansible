@@ -255,7 +255,7 @@ def create_or_update_bucket(s3_client, module, location):
 
 
 def wait_tags_are_applied(module, s3_client, bucket_name, expected_tags_dict):
-    for _ in range(0, 5):
+    for dummy in range(0, 5):
         current_tags_dict = get_current_bucket_tags_dict(module, s3_client, bucket_name)
         if current_tags_dict != expected_tags_dict:
             time.sleep(5)
