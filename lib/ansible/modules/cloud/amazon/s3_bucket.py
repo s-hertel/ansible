@@ -106,6 +106,7 @@ EXAMPLES = '''
 
 import json
 import os
+import time
 
 import ansible.module_utils.six.moves.urllib.parse as urlparse
 from ansible.module_utils.six import string_types
@@ -115,7 +116,7 @@ from ansible.module_utils.ec2 import compare_policies, ec2_argument_spec, boto3_
 from ansible.module_utils.ec2 import get_aws_connection_info, boto3_conn
 
 try:
-    from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+    from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError, WaiterError
 except ImportError:
     pass  # handled by AnsibleAWSModule
 
@@ -147,7 +148,10 @@ def create_or_update_bucket(s3_client, module, location):
                     s3_client.create_bucket(Bucket=name, CreateBucketConfiguration=configuration)
                 else:
                     s3_client.create_bucket(Bucket=name)
+                s3_client.get_waiter('bucket_exists').wait(Bucket=name)
                 changed = True
+            except WaiterError as e:
+                module.fail_json_aws(e, msg='An error occurred waiting for the bucket to become available.')
             except (BotoCoreError, ClientError) as e:
                 module.fail_json_aws(e, msg="Failed while creating bucket")
         else:
@@ -228,20 +232,7 @@ def create_or_update_bucket(s3_client, module, location):
             current_policy = policy
 
     # Tags
-    try:
-        current_tags = s3_client.get_bucket_tagging(Bucket=name).get('TagSet')
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchTagSet':
-            current_tags = None
-        else:
-            module.fail_json_aws(e, msg="Failed to get bucket tags")
-    except BotoCoreError as e:
-        module.fail_json_aws(e, msg="Failed to get bucket tags")
-
-    if current_tags is None:
-        current_tags_dict = {}
-    else:
-        current_tags_dict = boto3_tag_list_to_ansible_dict(current_tags)
+    current_tags_dict = get_current_bucket_tags_dict(module, s3_client, name)
 
     if tags is not None:
         if current_tags_dict != tags:
@@ -255,11 +246,38 @@ def create_or_update_bucket(s3_client, module, location):
                     s3_client.delete_bucket_tagging(Bucket=name)
                 except (BotoCoreError, ClientError) as e:
                     module.fail_json_aws(e, msg="Failed to delete bucket tags")
+            wait_tags_are_applied(module, s3_client, name, tags)
             current_tags_dict = tags
             changed = True
 
     module.exit_json(changed=changed, name=name, versioning=versioning_return_value,
                      requester_pays=requester_pays, policy=current_policy, tags=current_tags_dict)
+
+
+def wait_tags_are_applied(module, s3_client, bucket_name, expected_tags_dict):
+    for _ in range(0, 5):
+        current_tags_dict = get_current_bucket_tags_dict(module, s3_client, bucket_name)
+        if current_tags_dict != expected_tags_dict:
+            time.sleep(5)
+        else:
+            return
+
+
+def get_current_bucket_tags_dict(module, s3_client, bucket_name):
+    try:
+        current_tags = s3_client.get_bucket_tagging(Bucket=bucket_name).get('TagSet')
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchTagSet':
+            current_tags = None
+        else:
+            module.fail_json_aws(e, msg="Failed to get bucket tags")
+    except BotoCoreError as e:
+        module.fail_json_aws(e, msg="Failed to get bucket tags")
+
+    if current_tags is None:
+        return {}
+    else:
+        return boto3_tag_list_to_ansible_dict(current_tags)
 
 
 def paginated_list(s3_client, **pagination_params):
@@ -302,6 +320,9 @@ def destroy_bucket(s3_client, module):
 
     try:
         s3_client.delete_bucket(Bucket=name)
+        s3_client.get_waiter('bucket_not_exists').wait(Bucket=name)
+    except WaiterError as e:
+        module.fail_json_aws(e, msg='An error occurred waiting for the bucket to be deleted.')
     except (BotoCoreError, ClientError) as e:
         module.fail_json_aws(e, msg="Failed to delete bucket")
     changed = True
