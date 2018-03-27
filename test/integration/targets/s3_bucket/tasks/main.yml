@@ -25,6 +25,7 @@
           - output.changed
           - output.name == '{{ resource_prefix }}-testbucket-ansible'
           - not output.requester_pays
+      register: assertion
 
     # ============================================================
     - name: Try to update the same bucket with the same values
@@ -39,6 +40,7 @@
           - not output.changed
           - output.name == '{{ resource_prefix }}-testbucket-ansible'
           - not output.requester_pays
+      register: assertion
 
     # ============================================================
     - name: Delete s3_bucket
@@ -51,6 +53,7 @@
     - assert:
         that:
           - output.changed
+      register: assertion
 
     # ============================================================
     - name: Set bucket_name variable to be able to use it in lookup('template')
@@ -86,6 +89,7 @@
           - output.policy.Statement[0].Resource | length == 1
           - output.policy.Statement[0].Resource[0] == 'arn:aws:s3:::{{ resource_prefix }}-testbucket-ansible-complex/*'
           - output.policy.Statement[0].Sid == 'AddPerm'
+      register: assertion
 
     # ============================================================
     - name: Try to update the same complex s3_bucket
@@ -104,6 +108,7 @@
     - assert:
         that:
           - not output.changed
+      register: assertion
 
     # ============================================================
     - name: Update bucket policy
@@ -129,6 +134,7 @@
           - output.policy.Statement[0].Resource | length == 1
           - output.policy.Statement[0].Resource[0] == 'arn:aws:s3:::{{ resource_prefix }}-testbucket-ansible-complex/*'
           - output.policy.Statement[0].Sid == 'AddPerm'
+      register: assertion
 
     # ============================================================
     - name: Update attributes for s3_bucket
@@ -160,6 +166,7 @@
           - output.policy.Statement[0].Resource | length == 1
           - output.policy.Statement[0].Resource[0] == 'arn:aws:s3:::{{ resource_prefix }}-testbucket-ansible-complex/*'
           - output.policy.Statement[0].Sid == 'AddPerm'
+      register: assertion
 
     # ============================================================
     - name: Remove a tag for s3_bucket
@@ -179,6 +186,7 @@
           - output.changed
           - output.tags.example == 'tag1-udpated'
           - "'another' not in output.tags"
+      register: assertion
 
     # ============================================================
     - name: Do not specify any tag to ensure previous tags are not removed
@@ -195,6 +203,7 @@
         that:
           - not output.changed
           - output.tags.example == 'tag1-udpated'
+      register: assertion
 
     # ============================================================
     - name: Remove all tags
@@ -212,6 +221,7 @@
         that:
           - output.changed
           - output.tags == {}
+      register: assertion
 
     # ============================================================
     - name: Delete s3_bucket
@@ -224,6 +234,7 @@
     - assert:
         that:
           - output.changed
+      register: assertion
 
     # ============================================================
     - name: Create bucket with dot in name
@@ -237,6 +248,7 @@
         that:
           - output.changed
           - output.name == '{{ resource_prefix }}.testbucket.ansible'
+      register: assertion
 
     - name: Delete s3_bucket
       s3_bucket:
@@ -248,6 +260,7 @@
     - assert:
         that:
           - output.changed
+      register: assertion
 
     # ============================================================
     - name: Try to delete a missing bucket (should not fail)
@@ -260,6 +273,32 @@
     - assert:
         that:
           - not output.changed
+      register: assertion
+  rescue:
+
+    - name: get end time
+      pause:
+        seconds: 0
+      register: end
+
+    - name: create failure file
+      tempfile:
+        path: "{{ fail_dir }}"
+        state: file
+        prefix: 'test-{{ num }}-'
+      register: tmpfile
+
+    - name: record failures
+      copy:
+        content: "START: {{ start_time }} - END: {{ end.start }}\n\nLAST TASK: {{ output }}\n\nLAST ASSERTION: {{ assertion }}"
+        dest: "{{ tmpfile.path }}"
+      when: assertion is defined and assertion is failed
+
+    - name: record failures
+      copy:
+        content: "START: {{ start_time }} - END: {{ end.start }}\n\nLAST TASK: {{ output }}"
+        dest: "{{ tmpfile.path }}"
+      when: assertion is undefined or assertion is success
 
   # ============================================================
   always:

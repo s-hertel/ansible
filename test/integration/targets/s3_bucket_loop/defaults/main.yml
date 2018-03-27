@@ -1,0 +1,2 @@
+test_path: # path to the main.yml of the s3_bucket test
+number_of_times: # number of times to loop

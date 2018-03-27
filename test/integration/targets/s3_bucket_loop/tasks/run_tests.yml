@@ -1,0 +1,42 @@
+- name: run s3_bucket tests
+  block:
+
+# ============================================================
+    - name: debug the test number
+      debug: msg="TEST {{ run }}"
+
+    - name: get start time
+      pause:
+        seconds: 0
+      register: start
+
+    - name: run tests
+      include: "{{ test_path }}"
+      vars:
+        start_time: "{{ start.start }}"
+        fail_dir: "{{ tmpdir.path }}"
+        num: "{{ run }}"
+
+  always:
+
+    - name: find left over buckets
+      command: aws s3api list-buckets --query "Buckets[].Name"
+      register: remaining_buckets
+      environment:
+        AWS_REGION: '{{aws_region}}'
+        AWS_ACCESS_KEY_ID: '{{aws_access_key}}'
+        AWS_SECRET_ACCESS_KEY: '{{aws_secret_key}}'
+        AWS_SESSION_TOKEN: '{{security_token|default("")}}'
+
+    - name: remove buckets
+      command: "aws s3api delete-bucket --bucket {{ bucket }}"
+      when: bucket.startswith(resource_prefix)
+      loop: "{{ remaining_buckets.stdout }}"
+      loop_control:
+        loop_var: bucket
+      environment:
+        AWS_REGION: '{{aws_region}}'
+        AWS_ACCESS_KEY_ID: '{{aws_access_key}}'
+        AWS_SECRET_ACCESS_KEY: '{{aws_secret_key}}'
+        AWS_SESSION_TOKEN: '{{security_token|default("")}}'
+
