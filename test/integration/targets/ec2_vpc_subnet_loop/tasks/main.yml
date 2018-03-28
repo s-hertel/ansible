@@ -1,0 +1,47 @@
+---
+- name: loop tests
+  block:
+
+    #- name: set test runner
+    #  set_fact:
+    #    test_runner: /Users/shertel/Workspace/ansible/run_and_record_errors_subnet.yml
+
+    - name: create a directory
+      tempfile:
+        state: directory
+        suffix: failures
+        prefix: 'ec2_vpc_subnet-{{ resource_prefix }}-'
+      register: tmpdir
+
+    - name: get meta begin time
+      pause:
+        seconds: 0
+      register: meta_start
+
+    - name: run tests
+      include_tasks: tasks/run_tests.yml
+      ignore_errors: yes
+      loop: "{{ range(1, number_of_times + 1) | list }}"
+      loop_control:
+        loop_var: run
+
+  always:
+
+    - name: get meta end time
+      pause:
+        seconds: 0
+      register: meta_end
+
+    - name: create meta file
+      tempfile:
+        path: "{{ tmpdir.path }}"
+        state: file
+        prefix: 'TIME-'
+      register: meta_tmpfile
+
+    - name: record tests duration
+      copy:
+        content: "START: {{ meta_start.start }} - END: {{ meta_end.start }}"
+        dest: "{{ meta_tmpfile.path }}"
+
+    - debug: msg="Find results for test {{ resource_prefix }} in failures folder {{ tmpdir.path }}"
