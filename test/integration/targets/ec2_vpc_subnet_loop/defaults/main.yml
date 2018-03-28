@@ -1,0 +1,6 @@
+---
+# defaults file for ec2_vpc_subnet
+ec2_vpc_subnet_name: '{{resource_prefix}}'
+ec2_vpc_subnet_description: 'Created by ansible integration tests'
+test_path: /Users/shertel/Workspace/ansible/test/integration/targets/ec2_vpc_subnet/tasks/main.yml
+number_of_times: 50

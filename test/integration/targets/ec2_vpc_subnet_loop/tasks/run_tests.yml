@@ -1,0 +1,86 @@
+- name: run ec2_vpc_subnet tests
+  block:
+
+# ============================================================
+    - name: debug the test number
+      debug: msg="TEST {{ run }}"
+
+    - name: get start time
+      pause:
+        seconds: 0
+      register: start
+
+    - name: run tests
+      include: "{{ test_path }}"
+      vars:
+        start_time: "{{ start.start }}"
+        fail_dir: "{{ tmpdir.path }}"
+        num: "{{ run }}"
+
+  always:
+
+    - name: set connection information for subsequent tasks
+      set_fact:
+        aws_connection: &aws_connection
+          aws_access_key: "{{ aws_access_key }}"
+          aws_secret_key: "{{ aws_secret_key }}"
+          security_token: "{{ security_token }}"
+          region: "{{ aws_region }}"
+      no_log: yes
+
+    # ensure there is a clean slate for next test run
+    - name: find all subnets that didn't get cleaned up
+      ec2_vpc_subnet_facts:
+        filters:
+          cidrBlock: 10.232.232.128/28
+        <<: *aws_connection
+      register: cleanup_subnets
+
+    - name: generate list of subnet ids
+      set_fact:
+        subnet_ids: "{{ cleanup_subnets | json_query('subnets[*].subnet_id') }}"
+      when: cleanup_subnets.subnets
+
+    - name: or empty list
+      set_fact:
+        subnet_ids: []
+      when: not cleanup_subnets.subnets
+
+    - name: loop over leftover subnets and just use aws command line
+      command: 'aws ec2 delete-subnet --subnet-id {{ subnet }} --region {{ aws_region }}'
+      environment:
+        AWS_REGION: '{{aws_region}}'
+        AWS_ACCESS_KEY_ID: '{{aws_access_key}}'
+        AWS_SECRET_ACCESS_KEY: '{{aws_secret_key}}'
+        AWS_SESSION_TOKEN: '{{security_token|default("")}}'
+      loop: "{{ subnet_ids }}"
+      loop_control:
+        loop_var: subnet
+
+    - name: find all VPCs that didn't get cleaned up
+      ec2_vpc_net_facts:
+        filters:
+          cidr: 10.232.232.128/26
+        <<: *aws_connection
+      register: cleanup_vpcs
+
+    - name: generate list of vpc ids
+      set_fact:
+        vpc_ids: "{{ cleanup_vpcs | json_query('vpcs[*].vpc_id') }}"
+      when: cleanup_vpcs.vpcs
+
+    - name: or empty list
+      set_fact:
+        vpc_ids: []
+      when: not cleanup_vpcs.vpcs
+
+    - name: loop over leftover vpcs and just use aws command line
+      command: 'aws ec2 delete-vpc --vpc-id {{ vpc }} --region {{ aws_region }}'
+      environment:
+        AWS_REGION: '{{aws_region}}'
+        AWS_ACCESS_KEY_ID: '{{aws_access_key}}'
+        AWS_SECRET_ACCESS_KEY: '{{aws_secret_key}}'
+        AWS_SESSION_TOKEN: '{{security_token|default("")}}'
+      loop: "{{ vpc_ids }}"
+      loop_control:
+        loop_var: vpc
