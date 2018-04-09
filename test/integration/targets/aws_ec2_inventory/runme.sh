@@ -2,6 +2,9 @@
 
 set -eux
 
+# ensure test config is empty
+ansible-playbook playbooks/empty_inventory_config.yml "$@"
+
 export ANSIBLE_INVENTORY_ENABLED=aws_ec2
 
 # test with default inventory file
@@ -21,8 +24,12 @@ ansible-playbook playbooks/create_inventory_config_with_cache.yml -e @../../inte
 ansible-playbook playbooks/populate_cache.yml -e @../../integration_config.yml -e @../../cloud-config-aws.yml "$@"
 ansible-playbook playbooks/test_inventory_cache.yml "$@"
 
-# cleanup inventory config
-ansible-playbook playbooks/empty_inventory_config.yml "$@"
-
 # remove inventory cache
 rm -r aws_ec2_cache_dir/
+
+# generate inventory config with constructed features and test using it
+ansible-playbook playbooks/create_inventory_config_with_constructed.yml -e @../../integration_config.yml -e @../../cloud-config-aws.yml "$@"
+ansible-playbook playbooks/test_populating_inventory_with_constructed.yml -e @../../integration_config.yml -e @../../cloud-config-aws.yml "$@"
+
+# cleanup inventory config
+ansible-playbook playbooks/empty_inventory_config.yml "$@"
