@@ -17,6 +17,7 @@
             tag:Name:
               - '{{ resource_prefix }}'
           keyed_groups:
+            # FIXME: right now always resulting in a 'security_groups_' group
             - key: 'security_groups|json_query("[].group_id")'
               prefix: 'security_groups'
             - key: 'tags'

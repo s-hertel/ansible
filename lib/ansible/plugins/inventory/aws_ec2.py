@@ -424,6 +424,16 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             # Complex groups based on jinaj2 conditionals, hosts that meet the conditional are added to group
             self._add_host_to_composed_groups(self.get_option('groups'), host, hostname, strict=strict)
 
+            # TODO: don't do this manually and do the same for other complex attributes
+            tags = host['tags']  # format: {'tag1': 'value1', 'tag2': 'value2', 'tag3': 'value3'}
+            del host['tags']
+            for key, value in tags.items():
+                self._add_host_to_keyed_groups(self.get_option('keyed_groups'), {'tags': "{0}_{1}".format(key, value)}, hostname, strict=strict)
+            security_groups = host['security_groups']  # format: [{'group_name': 'group1', 'group_id': 'sg-xxxxxxxx'}, {'group_name': 'group2', 'group_id': 'sg-xxxxxxxx'}]
+            del host['security_groups']
+            for sg in security_groups:
+                self._add_host_to_keyed_groups(self.get_option('keyed_groups'), {'security_groups': [sg]}, hostname, strict=strict)
+
             # Create groups based on variable values and add the corresponding hosts to it
             self._add_host_to_keyed_groups(self.get_option('keyed_groups'), host, hostname, strict=strict)
 
