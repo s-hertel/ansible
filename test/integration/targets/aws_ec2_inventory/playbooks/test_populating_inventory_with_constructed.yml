@@ -76,55 +76,20 @@
 
             - name: register the keyed sg group name
               set_fact:
-                sg_group_name: "security_groups___{{ setup_sg.group_id | replace('-', '_') }}__"
+                sg_group_name: "security_groups_{{ setup_sg.group_id | replace('-', '_') }}"
 
-            # This only works if there is a single tag associated with the host
-            #- name: register one of the keyed tag groups name
-            #  set_fact:
-            #    tag_group_name: "tag_Name____{{ resource_prefix | replace('-', '_') }}__"
-
-            - name: register a possible keyed tag group name
+            - name: register one of the keyed tag groups name
               set_fact:
-                tag_group_name_1: "tag___tag1____value1____tag2____value2____Name____{{ resource_prefix | replace('-', '_') }}__"
-
-            - name: register a possible keyed tag group name
-              set_fact:
-                tag_group_name_2: "tag___tag1____value1____Name____{{ resource_prefix | replace('-', '_') }}____tag2____value2__"
-
-            - name: register a possible keyed tag group name
-              set_fact:
-                tag_group_name_3: "tag___tag2____value2____tag1____value1____Name____{{ resource_prefix | replace('-', '_') }}__"
-
-            - name: register a possible keyed tag group name
-              set_fact:
-                tag_group_name_4: "tag___tag2____value2____Name____{{ resource_prefix | replace('-', '_') }}____tag1____value1__"
-
-            - name: register a possible keyed tag group name
-              set_fact:
-                tag_group_name_5: "tag___Name____{{ resource_prefix | replace('-', '_') }}____tag1____value1____tag2____value2__"
-
-            - name: register a possible keyed tag group name
-              set_fact:
-                tag_group_name_6: "tag___Name____{{ resource_prefix | replace('-', '_') }}____tag2____value2____tag1____value1__"
+                tag_group_name: "tag_Name_{{ resource_prefix | replace('-', '_') }}"
 
             - debug: var=groups
 
             - name: assert the keyed groups and groups from constructed config were added to inventory and composite var added to hostvars
               assert:
                 that:
-                  # There are 7 groups: all, ungrouped, aws_ec2, sg keyed group, tag keyed group, arch keyed group, constructed group
-                  # Only one keyed group for tags is unexpected since there are 3 tags on the host; currently multiple
-                  # tags on a host are concatenated in a random order rather than making one group per tag. This also means the hostname
-                  # cannot be determined ahead of time if there are multiple tags on a host.
-                  - "groups | length == 7"
-                  # tag group name only predictable if there is one tag
-                  #- "groups[tag_group_name] | length == 1"
-                  - "tag_group_name_1 in groups or
-                    tag_group_name_2 in groups or
-                    tag_group_name_3 in groups or
-                    tag_group_name_4 in groups or
-                    tag_group_name_5 in groups or
-                    tag_group_name_6 in groups"
+                  # There are 9 groups: all, ungrouped, aws_ec2, sg keyed group, 3 tag keyed groups (1 group per tag), arch keyed group, constructed group
+                  - "groups | length == 9"
+                  - "groups[tag_group_name] | length == 1"
                   - "groups[sg_group_name] | length == 1"
                   - "groups.arch_x86_64 | length == 1"
                   - "groups.tag_with_name_key | length == 1"
