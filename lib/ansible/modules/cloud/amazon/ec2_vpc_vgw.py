@@ -166,7 +166,8 @@ def attach_vgw(client, module, vpn_gateway_id):
     try:
         response = client.attach_vpn_gateway(VpnGatewayId=vpn_gateway_id, VpcId=params['VpcId'])
     except botocore.exceptions.ClientError as e:
-        module.fail_json(msg=to_native(e), exception=traceback.format_exc())
+        current_vgws = client.describe_vpn_gateways()
+        module.fail_json(msg="Current VpnGateways: {0}, Error: {1}".format(current_vgws, to_native(e)), exception=traceback.format_exc())
 
     status_achieved, vgw = wait_for_status(client, module, [vpn_gateway_id], 'attached')
     if not status_achieved:
