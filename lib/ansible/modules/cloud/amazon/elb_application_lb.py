@@ -104,9 +104,12 @@ options:
     description:
       - Wait for the load balancer to have a state of 'active' before completing. A status check is
         performed every 15 seconds until a successful state is reached. An error is returned after 40 failed checks.
-    required: false
     default: no
     choices: [ 'yes', 'no' ]
+    version_added: 2.6
+  wait_timeout:
+    description:
+      - The time in seconds to use in conjunction with I(wait).
     version_added: 2.6
 extends_documentation_fragment:
     - aws
