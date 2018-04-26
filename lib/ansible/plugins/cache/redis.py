@@ -63,12 +63,16 @@ class CacheModule(BaseCacheModule):
     performance.
     """
     def __init__(self, *args, **kwargs):
-        if C.CACHE_PLUGIN_CONNECTION:
-            connection = C.CACHE_PLUGIN_CONNECTION.split(':')
+        self._load_name = 'redis'  # find where should this be getting set
+        super(CacheModule, self).__init__()
+
+        self.set_options(var_options=args, direct=kwargs)
+        if self.get_option('_uri'):
+            connection = self.get_option('_uri').split(':')
         else:
             connection = []
 
-        self._timeout = float(C.CACHE_PLUGIN_TIMEOUT)
+        self._timeout = self.get_option('_timeout')
         self._prefix = C.CACHE_PLUGIN_PREFIX
         self._cache = {}
         self._db = StrictRedis(*connection)

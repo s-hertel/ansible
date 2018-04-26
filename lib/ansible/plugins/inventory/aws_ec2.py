@@ -102,6 +102,7 @@ from ansible.module_utils.six import string_types
 from ansible.module_utils.ec2 import ansible_dict_to_boto3_filter_list, boto3_tag_list_to_ansible_dict
 from ansible.module_utils.ec2 import camel_dict_to_snake_dict
 from ansible.plugins.inventory import BaseInventoryPlugin, Constructable, Cacheable, to_safe_group_name
+from ansible.module_utils.basic import jsonify
 
 try:
     import boto3
@@ -405,7 +406,8 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 results[group]['hosts'].append(hostname)
                 h = self.inventory.get_host(hostname)
                 results['_meta']['hostvars'][h.name] = h.vars
-        return results
+        # FIXME
+        return jsonify(results, sort_keys=True)
 
     def _add_hosts(self, hosts, group, hostnames):
         '''

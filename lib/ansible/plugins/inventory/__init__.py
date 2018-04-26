@@ -28,7 +28,7 @@ from collections import Mapping
 
 from ansible.errors import AnsibleError, AnsibleParserError
 from ansible.plugins import AnsiblePlugin
-from ansible.plugins.cache import InventoryFileCacheModule
+from ansible.plugins.cache.inventory import InventoryFileCacheModule
 from ansible.module_utils._text import to_bytes, to_native
 from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.module_utils.six import string_types
@@ -189,15 +189,14 @@ class BaseInventoryPlugin(AnsiblePlugin):
             raise AnsibleParserError('inventory source has invalid structure, it should be a dictionary, got: %s' % type(config))
 
         self.set_options(direct=config)
-        if self._options.get('cache'):
-            self._set_cache_options(self._options)
+        if self.get_option('cache'):
+            self.cache = InventoryFileCacheModule(
+                plugin_name=self.get_option('cache_plugin'),
+                timeout=self.get_option('_timeout'),
+                cache_dir=self.get_option('_uri')
+            )
 
         return config
-
-    def _set_cache_options(self, options):
-        self.cache = InventoryFileCacheModule(plugin_name=options.get('cache_plugin'),
-                                              timeout=options.get('cache_timeout'),
-                                              cache_dir=options.get('cache_connection'))
 
     def _consume_options(self, data):
         ''' update existing options from file data'''

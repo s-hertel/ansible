@@ -25,7 +25,10 @@ options:
     ini:
       - section: inventory
         key: cache_plugin
-  cache_timeout:
+  _timeout:
+    # FIXME aliases are not found
+    aliases:
+      - cache_timeout
     description:
       - Cache duration in seconds
     default: 3600
@@ -35,7 +38,10 @@ options:
     ini:
       - section: inventory
         key: cache_timeout
-  cache_connection:
+  _uri:
+    # FIXME
+    aliases:
+      - cache_connection
     description:
       - Cache connection data or path, read cache plugin documentation for specifics.
     env:
