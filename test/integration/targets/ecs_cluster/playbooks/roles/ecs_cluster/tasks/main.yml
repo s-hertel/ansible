@@ -428,6 +428,7 @@
           subnets: "{{ setup_subnet.results | json_query('[].subnet.id') }}"
           security_groups:
             - '{{ setup_sg.group_id }}'
+          assign_public_ip: True
         <<: *aws_connection_info
       register: create_ecs_service_with_vpc
 
