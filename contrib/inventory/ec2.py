@@ -247,6 +247,9 @@ class Ec2Inventory(object):
     def __init__(self):
         ''' Main execution path '''
 
+        # To allow using STS credentials for the connections to different services/regions, indicate when a role has already been assumed
+        self.assumed_role = False
+
         # Inventory grouped by instance IDs, tags, security groups, regions,
         # and availability zones
         self.inventory = self._empty_inventory()
@@ -581,10 +584,14 @@ class Ec2Inventory(object):
 
         if self.iam_role:
             sts_conn = sts.connect_to_region(region, **connect_args)
-            role = sts_conn.assume_role(self.iam_role, 'ansible_dynamic_inventory')
-            connect_args['aws_access_key_id'] = role.credentials.access_key
-            connect_args['aws_secret_access_key'] = role.credentials.secret_key
-            connect_args['security_token'] = role.credentials.session_token
+            if self.assumed_role:
+                role = sts.credentials.Credentials()
+            else:
+                role = sts_conn.assume_role(self.iam_role, 'ansible_dynamic_inventory').credentials
+                self.assumed_role = True
+            connect_args['aws_access_key_id'] = role.access_key
+            connect_args['aws_secret_access_key'] = role.secret_key
+            connect_args['security_token'] = role.session_token
 
         conn = module.connect_to_region(region, **connect_args)
         # connect_to_region will fail "silently" by returning None if the region name is wrong or not supported
