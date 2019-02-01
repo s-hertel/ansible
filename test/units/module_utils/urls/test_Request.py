@@ -55,6 +55,7 @@ def test_Request_fallback(urlopen_mock, install_opener_mock, mocker):
         call(None, True),  # force
         call(None, 100),  # timeout
         call(None, False),  # validate_certs
+        call(None, None),  # ca_path
         call(None, 'user'),  # url_username
         call(None, 'passwd'),  # url_password
         call(None, 'ansible-tests'),  # http_agent
@@ -66,7 +67,7 @@ def test_Request_fallback(urlopen_mock, install_opener_mock, mocker):
     ]
     fallback_mock.assert_has_calls(calls)
 
-    assert fallback_mock.call_count == 12  # All but headers use fallback
+    assert fallback_mock.call_count == 13  # All but headers use fallback
 
     args = urlopen_mock.call_args[0]
     assert args[1] is None  # data, this is handled in the Request not urlopen
@@ -397,6 +398,6 @@ def test_open_url(urlopen_mock, install_opener_mock, mocker):
     open_url('https://ansible.com/')
     req_mock.assert_called_once_with('GET', 'https://ansible.com/', data=None, headers=None, use_proxy=True,
                                      force=False, last_mod_time=None, timeout=10, validate_certs=True,
-                                     url_username=None, url_password=None, http_agent=None,
+                                     ca_path=None, url_username=None, url_password=None, http_agent=None,
                                      force_basic_auth=False, follow_redirects='urllib2',
                                      client_cert=None, client_key=None, cookies=None)
