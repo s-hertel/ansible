@@ -45,6 +45,13 @@ options:
     type: bool
     default: yes
     version_added: "1.5"
+  use_ssl:
+    description:
+      - Determines if the connection is over SSL.
+      - If this option is omitted and a boto module is used with the boto configuration setting 'is_secure', the configuration setting is used.
+      - If this option is omitted otherwise, AWS defaults to using SSL.
+    type: bool
+    version_added: "2.9"
   profile:
     description:
       - Uses a boto profile. Only works with boto >= 2.24.0.

@@ -182,6 +182,7 @@ def aws_common_argument_spec():
         aws_secret_key=dict(aliases=['ec2_secret_key', 'secret_key'], no_log=True),
         aws_access_key=dict(aliases=['ec2_access_key', 'access_key']),
         validate_certs=dict(default=True, type='bool'),
+        use_ssl=dict(type='bool'),
         security_token=dict(aliases=['access_token'], no_log=True),
         profile=dict(),
     )
@@ -209,6 +210,7 @@ def get_aws_connection_info(module, boto3=False):
     region = module.params.get('region')
     profile_name = module.params.get('profile')
     validate_certs = module.params.get('validate_certs')
+    use_ssl = module.params.get('use_ssl')
 
     if not ec2_url:
         if 'AWS_URL' in os.environ:
@@ -292,8 +294,11 @@ def get_aws_connection_info(module, boto3=False):
                            aws_session_token=security_token)
         boto_params['verify'] = validate_certs
 
+        if use_ssl is not None:
+            boto_params['use_ssl'] = use_ssl
+
         if profile_name:
-            boto_params = dict(aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None)
+            boto_params.update(dict(aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None))
             boto_params['profile_name'] = profile_name
 
     else:
@@ -306,6 +311,9 @@ def get_aws_connection_info(module, boto3=False):
             boto_params['profile_name'] = profile_name
 
         boto_params['validate_certs'] = validate_certs
+
+        if use_ssl is not None:
+            boto_params['is_secure'] = use_ssl
 
     for param, value in boto_params.items():
         if isinstance(value, binary_type):
