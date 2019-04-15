@@ -83,6 +83,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
     _register = FieldAttribute(isa='string', static=True)
     _retries = FieldAttribute(isa='int', default=3)
     _until = FieldAttribute(isa='list', default=list)
+    _non_persistent_facts = FieldAttribute(isa='bool', default=False)
 
     # deprecated, used to be loop and loop_args but loop has been repurposed
     _loop_with = FieldAttribute(isa='string', private=True, inherit=False)
