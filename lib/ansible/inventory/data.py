@@ -278,3 +278,34 @@ class InventoryData(object):
                 self._groups_dict_cache[group_name] = [h.name for h in group.get_hosts()]
 
         return self._groups_dict_cache
+
+    def comp_serialized_data(self, rollback, rollback_groups, rollback_hosts):
+        current, groups, hosts = self.get_serialized_data()
+        return not (current == rollback and groups == rollback_groups and hosts == rollback_hosts)
+
+    def get_serialized_data(self):
+        rollback = self.serialize()
+        rollback_groups = {}
+        rollback_hosts = {}
+        for group in rollback['groups']:
+            rollback_groups[group] = self.groups[group].serialize()
+        for host in rollback['hosts']:
+            rollback_hosts[host] = self.hosts[host].serialize()
+        return rollback, rollback_groups, rollback_hosts
+
+    def put_serialized_data(self, rollback_top, rollback_groups, rollback_hosts):
+
+        for group in dict(self.groups):
+            if group not in rollback_groups:
+                self.remove_group(group)
+        for host in dict(self.hosts):
+            if host not in rollback_hosts:
+                self.remove_host(group)
+
+        self.deserialize(rollback_top)
+
+        for group in rollback_groups:
+            self.groups[group].deserialize(rollback_groups[group])
+
+        for host in rollback_hosts:
+            self.hosts[host].deserialize(rollback_hosts[host])

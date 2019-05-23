@@ -244,6 +244,8 @@ class InventoryManager(object):
                 if not parsed:
                     parsed = parsed_this_one
         else:
+            rollback, rollback_groups, rollback_hosts = self._inventory.get_serialized_data()
+
             # left with strings or files, let plugins figure it out
 
             # set so new hosts can use for inventory_file/dir vasr
@@ -275,10 +277,14 @@ class InventoryManager(object):
                         display.vvv('Parsed %s inventory source with %s plugin' % (source, plugin_name))
                         break
                     except AnsibleParserError as e:
+                        if self._inventory.comp_serialized_data(rollback, rollback_groups, rollback_hosts):
+                            self._inventory.put_serialized_data(rollback, rollback_groups, rollback_hosts)
                         display.debug('%s was not parsable by %s' % (source, plugin_name))
                         tb = ''.join(traceback.format_tb(sys.exc_info()[2]))
                         failures.append({'src': source, 'plugin': plugin_name, 'exc': e, 'tb': tb})
                     except Exception as e:
+                        if self._inventory.comp_serialized_data(rollback, rollback_groups, rollback_hosts):
+                            self._inventory.put_serialized_data(rollback, rollback_groups, rollback_hosts)
                         display.debug('%s failed while attempting to parse %s' % (plugin_name, source))
                         tb = ''.join(traceback.format_tb(sys.exc_info()[2]))
                         failures.append({'src': source, 'plugin': plugin_name, 'exc': AnsibleError(e), 'tb': tb})
