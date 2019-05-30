@@ -122,8 +122,14 @@ class Conditional:
         bare_vars_warning = False
         if C.CONDITIONAL_BARE_VARS:
             if conditional in all_vars and VALID_VAR_REGEX.match(conditional):
-                conditional = all_vars[conditional]
                 bare_vars_warning = True
+            # Prevent infinite looping by self references
+            references = set()
+            while conditional in all_vars and VALID_VAR_REGEX.match(conditional):
+                if conditional in references:
+                    break
+                references.add(conditional)
+                conditional = all_vars[conditional]
 
         # make sure the templar is using the variables specified with this method
         templar.available_variables = all_vars
