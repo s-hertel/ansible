@@ -426,6 +426,8 @@ def main():
             else:
                 if dead_letter_arn != "":
                     func_kwargs.update({'DeadLetterConfig': {'TargetArn': dead_letter_arn}})
+        if tracing_mode:
+            func_kwargs.update({'TracingConfig': {'Mode': tracing_mode}})
 
         # Check for unsupported mutation
         if current_config['Runtime'] != runtime:
