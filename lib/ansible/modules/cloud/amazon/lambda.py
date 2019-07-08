@@ -333,7 +333,7 @@ def main():
         vpc_security_group_ids=dict(type='list'),
         environment_variables=dict(type='dict'),
         dead_letter_arn=dict(),
-        tracing_mode=dict(),
+        tracing_mode=dict(choices=['Active', 'PassThrough']),
         tags=dict(type='dict'),
     )
 
