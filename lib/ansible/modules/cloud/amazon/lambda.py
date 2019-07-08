@@ -96,6 +96,12 @@ options:
     description:
       - The parent object that contains the target Amazon Resource Name (ARN) of an Amazon SQS queue or Amazon SNS topic.
     version_added: "2.3"
+  tracing_mode:
+    description:
+      - Set mode to 'Active' to sample and trace incoming requests with AWS X-Ray. Turned off (set to 'PassThrough') by default.
+    choices: ['Active', 'PassThrough']
+    version_added: "2.9"
+
   tags:
     description:
       - tag dict to apply to the function (requires botocore 1.5.40 or above).
@@ -327,6 +333,7 @@ def main():
         vpc_security_group_ids=dict(type='list'),
         environment_variables=dict(type='dict'),
         dead_letter_arn=dict(),
+        tracing_mode=dict(),
         tags=dict(type='dict'),
     )
 
@@ -361,6 +368,7 @@ def main():
     vpc_security_group_ids = module.params.get('vpc_security_group_ids')
     environment_variables = module.params.get('environment_variables')
     dead_letter_arn = module.params.get('dead_letter_arn')
+    tracing_mode = module.params.get('tracing_mode')
     tags = module.params.get('tags')
 
     check_mode = module.check_mode
@@ -545,6 +553,9 @@ def main():
 
         if dead_letter_arn:
             func_kwargs.update({'DeadLetterConfig': {'TargetArn': dead_letter_arn}})
+
+        if tracing_mode:
+            func_kwargs.update({'TracingConfig': {'Mode': tracing_mode}})
 
         # If VPC configuration is given
         if vpc_subnet_ids or vpc_security_group_ids:
