@@ -262,7 +262,8 @@ class StrategyModule(StrategyBase):
                         # all hosts currently being iterated over rather than one host
                         results.extend(self._execute_meta(task, play_context, iterator, host))
                         if task.args.get('_raw_params', None) not in ('noop', 'reset_connection', 'end_host'):
-                            run_once = True
+                            if all([t == task for t in host_tasks]):
+                                run_once = True
                         if (task.any_errors_fatal or run_once) and not task.ignore_errors:
                             any_errors_fatal = True
                     else:
