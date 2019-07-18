@@ -45,6 +45,7 @@ class HostState:
         self.cur_always_task = 0
         self.cur_dep_chain = None
         self.run_state = PlayIterator.ITERATING_SETUP
+        self.previous_state = PlayIterator.ITERATING_SETUP
         self.fail_state = PlayIterator.FAILED_NONE
         self.pending_setup = False
         self.tasks_child_state = None
@@ -52,6 +53,18 @@ class HostState:
         self.always_child_state = None
         self.did_rescue = False
         self.did_start_at_task = False
+
+    @property
+    def run_state(self):
+        return self.__run_state
+
+    @run_state.setter
+    def run_state(self, value):
+        try:
+            self.previous_state = self.run_state
+        except AttributeError:
+            pass
+        self.__run_state = value
 
     def __repr__(self):
         return "HostState(%r)" % self._blocks
@@ -447,6 +460,7 @@ class PlayIterator:
                 elif state._blocks[state.cur_block].always:
                     state.run_state = self.ITERATING_ALWAYS
                 else:
+                    #
                     state.run_state = self.ITERATING_COMPLETE
         elif state.run_state == self.ITERATING_RESCUE:
             if state.rescue_child_state is not None:

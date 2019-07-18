@@ -227,8 +227,8 @@ class StrategyBase:
         # This should be safe, as everything should be ITERATING_COMPLETE by
         # this point, though the strategy may not advance the hosts itself.
 
-        inv_hosts = self._inventory.get_hosts(iterator._play.hosts, order=iterator._play.order)
-        [iterator.get_next_task_for_host(host) for host in inv_hosts if host.name not in self._tqm._unreachable_hosts]
+        inv_hosts = self.get_hosts_remaining(iterator._play)
+        [iterator.get_next_task_for_host(host) for host in inv_hosts]
 
         # save the failed/unreachable hosts, as the run_handlers()
         # method will clear that information during its execution
@@ -1023,9 +1023,19 @@ class StrategyBase:
         elif meta_action == 'clear_host_errors':
             if _evaluate_conditional(target_host):
                 for host in self._inventory.get_hosts(iterator._play.hosts):
+                    catch_up = host.name in (self._tqm._failed_hosts or self._tqm._unreachable_hosts)
                     self._tqm._failed_hosts.pop(host.name, False)
                     self._tqm._unreachable_hosts.pop(host.name, False)
                     iterator._host_states[host.name].fail_state = iterator.FAILED_NONE
+                    if catch_up:
+                        if iterator._host_states[host.name].run_state == iterator.ITERATING_COMPLETE:
+                            iterator._host_states[host.name].run_state = iterator._host_states[host.name].previous_state
+                        s, t = iterator.get_next_task_for_host(host, peek=False)
+                        while True:
+                            iterator._host_states[host.name].run_state = s.run_state
+                            if t.args.get('_raw_params') == 'clear_host_errors':
+                                break
+                            s, t  = iterator.get_next_task_for_host(host, peek=False)
                 msg = "cleared host errors"
             else:
                 skipped = True
