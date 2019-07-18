@@ -30,7 +30,7 @@ This feature only works when the task must be able to run and return a value of 
 
 .. _resetting_unreachable:
 
-Resetting Unreachable Hosts
+Resetting Unreachable and Failed Hosts
 ```````````````````````````
 
 .. versionadded:: 2.2
