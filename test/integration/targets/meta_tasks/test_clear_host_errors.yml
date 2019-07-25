@@ -10,7 +10,7 @@
     - name: run all three hosts
       debug: msg='starting play for {{ inventory_hostname }}'
 
-    - name: fail testhost2
+    - name: fail testhost2 (EXPECTED FAILURE)
       fail:
       when: "host_var_role_name == 'role2'"
 
@@ -29,7 +29,8 @@
 
         - debug: msg="{{ inventory_hostname }} in block2"
 
-        - fail:
+        - name: fail testhost2 again (EXPECTED FAILURE)
+          fail:
           when: "host_var_role_name == 'role2'"
 
         - debug: msg='block post-failure and pre-recovery for {{ inventory_hostname }}'
