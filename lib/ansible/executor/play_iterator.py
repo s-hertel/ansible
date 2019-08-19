@@ -40,21 +40,6 @@ class HostState:
     def __init__(self, blocks):
         self._blocks = blocks[:]
 
-        self._cur_block = 0
-        self._cur_regular_task = 0
-        self._cur_rescue_task = 0
-        self._cur_always_task = 0
-        self._cur_dep_chain = None
-        self._run_state = PlayIterator.ITERATING_SETUP
-        self._pending_setup = False
-        self._tasks_child_state = None
-        self._rescue_child_state = None
-        self._always_child_state = None
-        self._did_start_at_task = False
-
-        self.did_rescue = False
-        self.fail_state = PlayIterator.FAILED_NONE
-
         class_properties = (
             'run_state', 'cur_block', 'cur_regular_task', 'cur_rescue_task', 'cur_always_task', 'cur_dep_chain',
             'pending_setup', 'tasks_child_state', 'rescue_child_state', 'always_child_state', 'did_start_at_task',
@@ -63,7 +48,21 @@ class HostState:
         for class_property in class_properties:
             setattr(self.__class__, class_property, property(fset=self.attrsetter(class_property), fget=self.attrgetter(class_property)))
 
-        self._previous = copy(self)
+        self._previous = self
+
+        self.cur_block = 0
+        self.cur_regular_task = 0
+        self.cur_rescue_task = 0
+        self.cur_always_task = 0
+        self.cur_dep_chain = None
+        self.run_state = PlayIterator.ITERATING_SETUP
+        self.fail_state = PlayIterator.FAILED_NONE
+        self.pending_setup = False
+        self.tasks_child_state = None
+        self.rescue_child_state = None
+        self.always_child_state = None
+        self.did_rescue = False
+        self.did_start_at_task = False
 
     def attrgetter(self, attr):
         def get_any(self):
