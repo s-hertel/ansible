@@ -19,6 +19,7 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+from copy import copy
 import fnmatch
 
 from ansible import constants as C
@@ -39,17 +40,17 @@ class HostState:
     def __init__(self, blocks):
         self._blocks = blocks[:]
 
-        self._cur_block = self._previous_cur_block = 0
-        self._cur_regular_task = self._previous_cur_regular_task = 0
-        self._cur_rescue_task = self._previous_cur_rescue_task = 0
-        self._cur_always_task = self._previous_cur_always_task = 0
-        self._cur_dep_chain = self._previous_cur_dep_chain = None
-        self._run_state = self._previous_run_state = PlayIterator.ITERATING_SETUP
-        self._pending_setup = self._previous_pending_setup = False
-        self._tasks_child_state = self._previous_tasks_child_state = None
-        self._rescue_child_state = self._previous_rescue_child_state = None
-        self._always_child_state = self._previous_always_child_state = None
-        self._did_start_at_task = self._previous_did_start_at_task = False
+        self._cur_block = 0
+        self._cur_regular_task = 0
+        self._cur_rescue_task = 0
+        self._cur_always_task = 0
+        self._cur_dep_chain = None
+        self._run_state = PlayIterator.ITERATING_SETUP
+        self._pending_setup = False
+        self._tasks_child_state = None
+        self._rescue_child_state = None
+        self._always_child_state = None
+        self._did_start_at_task = False
 
         self.did_rescue = False
         self.fail_state = PlayIterator.FAILED_NONE
@@ -62,6 +63,8 @@ class HostState:
         for class_property in class_properties:
             setattr(self.__class__, class_property, property(fset=self.attrsetter(class_property), fget=self.attrgetter(class_property)))
 
+        self._previous = copy(self)
+
     def attrgetter(self, attr):
         def get_any(self):
             return getattr(self, '_' + attr)
@@ -69,25 +72,27 @@ class HostState:
 
     def attrsetter(self, attr):
         def set_any(self, value):
-            setattr(self, '_previous_' + attr, getattr(self, attr, value))
+            setattr(self._previous, '_' + attr, getattr(self, attr, value))
             setattr(self, '_' + attr, value)
         return set_any
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        if self.cur_dep_chain is not None:
+            state['cur_dep_chain'] = self.cur_dep_chain[:]
+        if self.tasks_child_state is not None:
+            state['tasks_child_state'] = self.tasks_child_state.copy()
+        if self.rescue_child_state is not None:
+            state['rescue_child_state'] = self.rescue_child_state.copy()
+        if self.always_child_state is not None:
+            state['always_child_state'] = self.always_child_state.copy()
+        return state
+
     def restore_properties(self):
-        self.cur_block = self._previous_cur_block
-        self.cur_regular_task = self._previous_cur_regular_task
-        self.cur_rescue_task = self._previous_cur_rescue_task
-        self.cur_always_task = self._previous_cur_always_task
-        self.cur_dep_chain = self._previous_cur_dep_chain
-        self.run_state = self._previous_run_state
-        self.pending_setup = self._previous_pending_setup
-        self.tasks_child_state = self._previous_tasks_child_state
-        self.rescue_child_state = self._previous_rescue_child_state
-        self.always_child_state = self._previous_always_child_state
-        self.did_start_at_task = self._previous_did_start_at_task
+        self.__dict__.update(self._previous.__dict__)
 
     def restore_run_state(self):
-        self.run_state = self._previous_run_state
+        self.run_state = self._previous.run_state
 
     def __repr__(self):
         return "HostState(%r)" % self._blocks
@@ -153,23 +158,7 @@ class HostState:
         new_state.pending_setup = self.pending_setup
         new_state.did_rescue = self.did_rescue
         new_state.did_start_at_task = self.did_start_at_task
-
-        new_state._previous_run_state = self._previous_run_state
-        new_state._previous_did_start_at_task = self._previous_did_start_at_task
-        new_state._previous_pending_setup = self._previous_pending_setup
-        new_state._previous_cur_block = self._previous_cur_block
-        new_state._previous_cur_regular_task = self._previous_cur_regular_task
-        new_state._previous_cur_rescue_task = self._previous_cur_rescue_task
-        new_state._previous_cur_always_task = self._previous_cur_always_task
-
-        if self._previous_cur_dep_chain is not None:
-            new_state._previous_cur_dep_chain = self._previous_cur_dep_chain[:]
-        if self._previous_tasks_child_state is not None:
-            new_state._previous_tasks_child_state = self._previous_tasks_child_state.copy()
-        if self._previous_rescue_child_state is not None:
-            new_state._previous_rescue_child_state = self._previous_rescue_child_state.copy()
-        if self._previous_always_child_state is not None:
-            new_state._previous_always_child_state = self._previous_always_child_state.copy()
+        new_state._previous = copy(self._previous)
 
         if self.cur_dep_chain is not None:
             new_state.cur_dep_chain = self.cur_dep_chain[:]
