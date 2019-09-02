@@ -263,7 +263,7 @@ def associate_ip_and_device(ec2, module, address, private_ip_address, device_id,
                 params['PrivateIpAddress'] = private_ip_address
 
             try:
-                res = ec2.associate_address(**params)
+                res = ec2.associate_address(aws_retry=True, **params)
             except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
                 msg = "Couldn't associate Elastic IP address with network interface '{0}'".format(device_id)
                 module.fail_json_aws(e, msg=msg)
@@ -273,7 +273,6 @@ def associate_ip_and_device(ec2, module, address, private_ip_address, device_id,
     return {'changed': True}
 
 
-@AWSRetry.jittered_backoff()
 def disassociate_ip_and_device(ec2, module, address, device_id, check_mode, is_instance=True):
     if not address_is_associated_with_device(ec2, module, address, device_id, is_instance):
         return {'changed': False}
@@ -283,11 +282,11 @@ def disassociate_ip_and_device(ec2, module, address, device_id, check_mode, is_i
         try:
             if address['Domain'] == 'vpc':
                 res = ec2.disassociate_address(
-                    AssociationId=address['AssociationId']
+                    AssociationId=address['AssociationId'], aws_retry=True
                 )
             else:
                 res = ec2.disassociate_address(
-                    PublicIp=address['PublicIp']
+                    PublicIp=address['PublicIp'], aws_retry=True
                 )
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Dissassociation of Elastic IP failed")
@@ -354,7 +353,7 @@ def allocate_address(ec2, module, domain, reuse_existing_ip_allowed, check_mode,
             filters += ansible_dict_to_boto3_filter_list(tag_dict)
 
         try:
-            all_addresses = ec2.describe_addresses(Filters=filters)
+            all_addresses = ec2.describe_addresses(Filters=filters, aws_retry=True)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Couldn't obtain list of existing Elastic IP addresses")
 
@@ -373,27 +372,25 @@ def allocate_address(ec2, module, domain, reuse_existing_ip_allowed, check_mode,
         return allocate_address_from_pool(ec2, module, domain, check_mode, public_ipv4_pool), True
 
     try:
-        result = ec2.allocate_address(Domain=domain), True
+        result = ec2.allocate_address(Domain=domain, aws_retry=True), True
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Couldn't allocate Elastic IP address")
     return result
 
 
-@AWSRetry.jittered_backoff()
 def release_address(ec2, module, address, check_mode):
     """ Release a previously allocated elastic IP address """
 
     # If we're in check mode, nothing else to do
     if not check_mode:
         try:
-            result = ec2.release_address(AllocationId=address['AllocationId'])
+            result = ec2.release_address(AllocationId=address['AllocationId'], aws_retry=True)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Couldn't release Elastic IP address")
 
     return {'changed': True}
 
 
-@AWSRetry.jittered_backoff()
 def find_device(ec2, module, device_id, is_instance=True):
     """ Attempt to find the EC2 instance and return it """
 
@@ -410,7 +407,7 @@ def find_device(ec2, module, device_id, is_instance=True):
                 return instances[0]
     else:
         try:
-            interfaces = ec2.describe_network_interfaces(NetworkInterfaceIds=[device_id])
+            interfaces = ec2.describe_network_interfaces(NetworkInterfaceIds=[device_id], aws_retry=True)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Couldn't get list of network interfaces.")
         if len(interfaces) == 1:
@@ -489,7 +486,7 @@ def allocate_address_from_pool(ec2, module, domain, check_mode, public_ipv4_pool
         params['DryRun'] = 'true'
 
     try:
-        result = ec2.allocate_address(**params)
+        result = ec2.allocate_address(aws_retry=True, **params)
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Couldn't allocate Elastic IP address")
     return result
@@ -539,7 +536,7 @@ def main():
         },
     )
 
-    ec2 = module.client('ec2')
+    ec2 = module.client('ec2', retry_decorator=AWSRetry.jittered_backoff())
 
     device_id = module.params.get('device_id')
     instance_id = module.params.get('instance_id')
