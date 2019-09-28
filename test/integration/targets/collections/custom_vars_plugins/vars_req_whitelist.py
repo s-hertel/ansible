@@ -20,12 +20,11 @@ __metaclass__ = type
 
 DOCUMENTATION = '''
     vars: vars_req_whitelist
-    version_added: "2.9"
+    version_added: "2.10"
     short_description: load host and group vars
     description: test loading host and group vars from a collection
     options:
       stage:
-        default: all
         choices: ['all', 'inventory', 'task']
         type: str
         ini:
@@ -44,4 +43,4 @@ class VarsModule(BaseVarsPlugin):
 
     def get_vars(self, loader, path, entities, cache=True):
         super(VarsModule, self).get_vars(loader, path, entities)
-        return {'whitelisted': True, 'collection': False}
+        return {'whitelisted': True, 'name': 'vars_req_whitelist', 'collection': False}
