@@ -176,7 +176,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         # attempt to read the cache if inventory isn't being refreshed and the user has caching enabled
         if attempt_to_read_cache:
             try:
-                results = self._cache[cache_key]
+                results = self.cache.get(cache_key)
                 need_to_fetch = False
             except KeyError:
                 # occurs if the cache_key is not in the cache or if the cache_key expired
@@ -202,7 +202,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
 
             # put result in cache if enabled
             if user_cache_setting:
-                self._cache[cache_key] = results
+                self.cache.set(cache_key, results)
 
         return results
 
