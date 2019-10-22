@@ -139,7 +139,8 @@
       lambda:
         name: "{{lambda_function_name}}"
         runtime: "nodejs10.x"
-        tracing_mode: 'Active'
+# Can only be uncommented once the ansible_lambda_role has permission to call PutTraceSegments on XRAY
+#        tracing_mode: 'Active'
         handler: "mini_lambda.handler"
         role: "ansible_lambda_role"
         <<: *aws_connection_info
