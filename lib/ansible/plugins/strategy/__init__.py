@@ -412,6 +412,7 @@ class StrategyBase:
                             if handler_templar.is_template(handler_task.name):
                                 handler_templar.available_variables = self._variable_manager.get_vars(play=iterator._play,
                                                                                                       task=handler_task,
+                                                                                                      host=get_original_host(task_result._host),
                                                                                                       _hosts=self._hosts_cache,
                                                                                                       _hosts_all=self._hosts_cache_all)
                                 handler_task.name = handler_templar.template(handler_task.name)
