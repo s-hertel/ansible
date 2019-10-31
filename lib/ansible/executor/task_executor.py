@@ -693,7 +693,7 @@ class TaskExecutor:
                 return failed_when_result
 
             if 'ansible_facts' in result:
-                if self._task.action in ('set_fact', 'include_vars'):
+                if self._task.action in ('set_fact', 'include_vars', 'inc_vars'):
                     vars_copy.update(result['ansible_facts'])
                 else:
                     # TODO: cleaning of facts should eventually become part of taskresults instead of vars
@@ -757,7 +757,7 @@ class TaskExecutor:
             variables[self._task.register] = wrap_var(result)
 
         if 'ansible_facts' in result:
-            if self._task.action in ('set_fact', 'include_vars'):
+            if self._task.action in ('set_fact', 'include_vars', 'inc_vars'):
                 variables.update(result['ansible_facts'])
             else:
                 # TODO: cleaning of facts should eventually become part of taskresults instead of vars

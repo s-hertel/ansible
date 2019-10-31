@@ -609,7 +609,7 @@ class StrategyBase:
                         else:
                             host_list = self.get_task_hosts(iterator, original_host, original_task)
 
-                        if original_task.action == 'include_vars':
+                        if original_task.action == 'include_vars' or original_task.action == 'inc_vars':
                             for (var_name, var_value) in iteritems(result_item['ansible_facts']):
                                 # find the host we're actually referring too here, which may
                                 # be a host that is not really in inventory at all

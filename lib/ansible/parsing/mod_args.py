@@ -40,6 +40,7 @@ FREEFORM_ACTIONS = frozenset((
 
 RAW_PARAM_MODULES = FREEFORM_ACTIONS.union((
     'include',
+    'inc_vars',
     'include_vars',
     'include_tasks',
     'include_role',
