@@ -37,7 +37,8 @@ from ansible.errors import AnsibleError
 from ansible.executor.interpreter_discovery import InterpreterDiscoveryRequiredError
 from ansible.executor.powershell import module_manifest as ps_manifest
 from ansible.module_utils._text import to_bytes, to_text, to_native
-from ansible.plugins.loader import module_utils_loader
+from ansible.parsing.plugin_docs import read_docstring
+from ansible.plugins.loader import module_utils_loader, module_loader
 # Must import strategy and use write_locks from there
 # If we import write_locks directly then we end up binding a
 # variable to the object and then it never gets updated.
@@ -1288,10 +1289,13 @@ def modify_module(module_name, module_path, module_args, templar, task_vars=None
     return (b_module_data, module_style, shebang)
 
 
-def get_action_args_with_defaults(action, args, defaults, templar):
+def get_action_args_with_defaults(action, args, defaults, templar, collection_list=None):
 
     tmp_args = {}
     module_defaults = {}
+
+    if collection_list is None:
+        collection_list = []
 
     # Merge latest defaults into dict, since they are a list of dicts
     if isinstance(defaults, list):
@@ -1302,10 +1306,18 @@ def get_action_args_with_defaults(action, args, defaults, templar):
     if module_defaults:
         module_defaults = templar.template(module_defaults)
 
+        name, path = module_loader.find_plugin_with_name(action, collection_list=collection_list, check_aliases=True)
+
+        # Allow static module_defaults.yml to keep working for modules in core
+        if len(name.split('.')) == 1 or name.startswith('ansible.legacy.') or name.startswith('ansible_collections.ansible.builtin.'):
+            action = name.split('.')[-1]
+            defined_groups = C.config.module_defaults_groups.get(action, [])
+        else:
+            defined_groups = read_docstring(path)['doc'].get('groups', [])
+
         # deal with configured group defaults first
-        if action in C.config.module_defaults_groups:
-            for group in C.config.module_defaults_groups.get(action, []):
-                tmp_args.update((module_defaults.get('group/{0}'.format(group)) or {}).copy())
+        for group in defined_groups:
+            tmp_args.update((module_defaults.get('group/{0}'.format(group)) or {}).copy())
 
         # handle specific action defaults
         if action in module_defaults:

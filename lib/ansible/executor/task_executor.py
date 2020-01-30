@@ -14,6 +14,7 @@ import sys
 import termios
 import traceback
 
+
 from ansible import constants as C
 from ansible.errors import AnsibleError, AnsibleParserError, AnsibleUndefinedVariable, AnsibleConnectionFailure, AnsibleActionFail, AnsibleActionSkip
 from ansible.executor.task_result import TaskResult
@@ -610,7 +611,7 @@ class TaskExecutor:
         self._handler = self._get_action_handler(connection=self._connection, templar=templar)
 
         # Apply default params for action/module, if present
-        self._task.args = get_action_args_with_defaults(self._task.action, self._task.args, self._task.module_defaults, templar)
+        self._task.args = get_action_args_with_defaults(self._task.action, self._task.args, self._task.module_defaults, templar, collection_list=self._task.collections)
 
         # And filter out any fields which were set to default(omit), and got the omit token value
         omit_token = variables.get('omit')
