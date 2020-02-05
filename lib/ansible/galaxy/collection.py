@@ -194,29 +194,23 @@ class CollectionRequirement:
         self.versions = set([self.latest_version])
         self._get_metadata()
 
-    def verify(self, remote_collection, path, b_temp_tar_path):
+    def verify_version(self, collection_requirement):
+        if self.latest_version != collection_requirement.latest_version:
+            err = "%s has the version '%s' but is being compared to '%s'" % (to_text(self), self.latest_version, collection_requirement.latest_version)
+            display.display(err)
+            return False
+        return True
+
+    def verify_content(self, b_temp_tar_path):
         if not self.skip:
             display.display("'%s' has not been installed, nothing to verify" % (to_text(self)))
-            return
-
-        collection_path = os.path.join(path, self.namespace, self.name)
-        b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
-
-        display.vvv("Verifying '%s:%s'." % (to_text(self), self.latest_version))
-        display.vvv("Installed collection found at '%s'" % collection_path)
-        display.vvv("Remote collection found at '%s'" % remote_collection.metadata.download_url)
-
-        # Compare installed version versus requirement version
-        if self.latest_version != remote_collection.latest_version:
-            err = "%s has the version '%s' but is being compared to '%s'" % (to_text(self), self.latest_version, remote_collection.latest_version)
-            display.display(err)
             return
 
         modified_content = []
 
         # Verify the manifest hash matches before verifying the file manifest
         expected_hash = _get_tar_file_hash(b_temp_tar_path, 'MANIFEST.json')
-        self._verify_file_hash(b_collection_path, 'MANIFEST.json', expected_hash, modified_content)
+        self._verify_file_hash(self.b_path, 'MANIFEST.json', expected_hash, modified_content)
         manifest = _get_json_from_tar_file(b_temp_tar_path, 'MANIFEST.json')
 
         # Use the manifest to verify the file manifest checksum
@@ -225,14 +219,14 @@ class CollectionRequirement:
         expected_hash = file_manifest_data['chksum_%s' % file_manifest_data['chksum_type']]
 
         # Verify the file manifest before using it to verify individual files
-        self._verify_file_hash(b_collection_path, file_manifest_filename, expected_hash, modified_content)
+        self._verify_file_hash(self.b_path, file_manifest_filename, expected_hash, modified_content)
         file_manifest = _get_json_from_tar_file(b_temp_tar_path, file_manifest_filename)
 
         # Use the file manifest to verify individual file checksums
         for manifest_data in file_manifest['files']:
             if manifest_data['ftype'] == 'file':
                 expected_hash = manifest_data['chksum_%s' % manifest_data['chksum_type']]
-                self._verify_file_hash(b_collection_path, manifest_data['name'], expected_hash, modified_content)
+                self._verify_file_hash(self.b_path, manifest_data['name'], expected_hash, modified_content)
 
         if modified_content:
             display.display("Collection %s contains modified content in the following files:" % to_text(self))
@@ -441,6 +435,14 @@ def build_collection(collection_path, output_path, force):
     _build_collection_tar(b_collection_path, b_collection_output, collection_manifest, file_manifest)
 
 
+def find_collection(collection_name, search_paths):
+    namespace, name = collection_name.split('.')
+    for search_path in search_paths:
+        b_search_path = to_bytes(os.path.join(search_path, namespace, name), errors='surrogate_or_strict')
+        if os.path.isdir(b_search_path):
+            return CollectionRequirement.from_path(b_search_path, False)
+
+
 def publish_collection(collection_path, api, wait, timeout):
     """
     Publish an Ansible collection tarball into an Ansible Galaxy server.
@@ -548,15 +550,13 @@ def verify_collections(collections, search_paths, apis, validate_certs, ignore_e
             for collection in collections:
                 try:
 
-                    local_collection = None
                     b_temp_tar_path = None
                     b_collection = to_bytes(collection[0], errors='surrogate_or_strict')
-                    located_by_name = False
 
+                    # Use a URL, path, or collection name located on a galaxy server as a verification source
                     if os.path.isfile(b_collection):
                         remote_collection = CollectionRequirement.from_tar(b_collection, False, parent=None)
-                    elif os.path.isdir(b_collection):
-                        remote_collection = CollectionRequirement.from_path(b_collection, False, parent=None)
+                        b_temp_tar_path = b_collection
                     elif urlparse(collection[0]).scheme.lower() in ['http', 'https']:
                         b_temp_tar_path = _download_file(collection[0], b_temp_path, None, validate_certs)
                         remote_collection = CollectionRequirement.from_tar(b_temp_tar_path, False, parent=None)
@@ -564,7 +564,6 @@ def verify_collections(collections, search_paths, apis, validate_certs, ignore_e
                         # Check that it looks like a collection name
                         if len(collection[0].split('.')) != 2:
                             raise AnsibleError(message="'%s' is not a valid collection name. The format namespace.name is expected." % collection[0])
-                        located_by_name = True
                         try:
                             remote_collection = CollectionRequirement.from_name(collection[0], apis, collection[1], False, parent=None)
                         except AnsibleError as e:
@@ -576,32 +575,25 @@ def verify_collections(collections, search_paths, apis, validate_certs, ignore_e
                     collection_version = remote_collection.latest_version
 
                     # Verify local collection exists before always downloading remote for comparison if it hasn't been yet
-                    for search_path in search_paths:
-                        b_search_path = to_bytes(
-                            os.path.join(search_path, remote_collection.namespace, remote_collection.name), errors='surrogate_or_strict'
-                        )
-                        if os.path.isdir(b_search_path):
-                            local_collection = CollectionRequirement.from_path(b_search_path, False)
-                            break
+                    local_collection = find_collection(collection_name, search_paths)
                     if local_collection is None:
                         raise AnsibleError(message='Collection %s is not installed in any of the collection paths.' % collection_name)
 
+                    display.vvv("Verifying '%s:%s'" % (collection_name, local_collection.latest_version))
+                    display.vvv("Installed collection found at '%s'" % to_text(local_collection.b_path))
+
                     # Download the tar file to compare with the installed collection
                     if b_temp_tar_path is None:
-                        if not located_by_name:
-                            try:
-                                remote_collection = CollectionRequirement.from_name(collection_name, apis, collection_version, False, parent=None)
-                            except AnsibleError as e:
-                                if e.message == 'Failed to find collection %s:%s' % (collection_name, collection_version):
-                                    msg = 'Failed to find remote collection %s:%s on any of the galaxy servers' % (collection_name, collection_version)
-                                    raise AnsibleError(msg)
-                                raise
                         download_url = remote_collection.metadata.download_url
                         headers = {}
                         remote_collection.api._add_auth_token(headers, download_url, required=False)
                         b_temp_tar_path = _download_file(download_url, b_temp_path, None, validate_certs, headers=headers)
+                        display.vvv("Validating against collection found at '%s'" % download_url)
+                    else:
+                        display.vvv("Validating against collection found at %s" % collection[0])
 
-                    local_collection.verify(remote_collection, search_path, b_temp_tar_path)
+                    if local_collection.verify_version(remote_collection):
+                        local_collection.verify_content(b_temp_tar_path)
 
                 except AnsibleError as err:
                     if ignore_errors:

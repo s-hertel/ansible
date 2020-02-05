@@ -53,11 +53,21 @@ Verifying collections
 Verifying collections with ``ansible-galaxy``
 ---------------------------------------------
 
-Once installed, you can verify that the content of the installed collection matches the content of the collection on the server. This feature expects that the collection is installed in one of the configured collection paths and that the collection exists on one of the configured galaxy servers.
+Once installed, you can verify that the content of the installed collection matches the content of the installation source. This feature expects that the collection is installed in one of the configured collection paths. The source used for validation can either be a local tar.gz file, a URL to a tar.gz, or a name of a collection that exists on one of the configured galaxy servers.
 
 .. code-block:: bash
 
    ansible-galaxy collection verify my_namespace.my_collection
+
+   ansible-galaxy collection verify /path/to/my_namespace_my_collection-1.0.0.tar.gz
+
+   ansible-galaxy collection verify https://../../my_namespace_my_collection-1.0.0.tar.gz
+
+A ``requirements.yml`` file can be used to easily verify multiple collections. Dependencies listed in ``requirements.yml`` are not included in the verify process and should be verified separately.
+
+.. code-block:: bash
+
+   ansible-galaxy collection verify -r requirements.yml
 
 The output of the ``ansible-galaxy collection verify`` command is quiet if it is successful. If a collection has been modified, the altered files are listed under the collection name.
 
@@ -77,7 +87,7 @@ You can use the ``-vvv`` flag to display additional information, such as the ver
    ...
    Verifying 'my_namespace.my_collection:1.0.0'.
    Installed collection found at '/path/to/ansible_collections/my_namespace/my_collection/'
-   Remote collection found at 'https://galaxy.ansible.com/download/my_namespace-my_collection-1.0.0.tar.gz'
+   Validating against collection found at 'https://galaxy.ansible.com/download/my_namespace-my_collection-1.0.0.tar.gz'
    Successfully verified that checksums for 'my_namespace.my_collection:1.0.0' match the remote collection
 
 If you have a pre-release or non-latest version of a collection installed you should include the specific version to verify. If the version is omitted, the installed collection is verified against the latest version available on the server.
@@ -85,19 +95,6 @@ If you have a pre-release or non-latest version of a collection installed you sh
 .. code-block:: bash
 
    ansible-galaxy collection verify my_namespace.my_collection:1.0.0
-
-In addition to the my_namespace.collection_name:version format, you can provide the collection to verify as a path or URL to a tar.gz file, a directory to an installed collection, or in a ``requirements.yml`` file. Dependencies listed in ``requirements.yml`` are not included in the verify process and should be verified separately.
-
-.. code-block:: bash
-
-   ansible-galaxy collection verify -r requirements.yml
-
-   ansible-galaxy collection verify /path/to/my_namespace_my_collection-1.0.0.tar.gz
-
-   ansible-galaxy collection verify https://../../my_namespace_my_collection-1.0.0.tar.gz
-
-   ansible-galaxy collection verify collections/ansible_collections/my_namespace/my_collection
-
 
 Using collections in a Playbook
 ===============================
