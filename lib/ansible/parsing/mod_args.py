@@ -19,13 +19,22 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+from yaml import load as yaml_load
+import os
+
 from ansible.errors import AnsibleParserError, AnsibleError, AnsibleAssertionError
 from ansible.module_utils.six import iteritems, string_types
-from ansible.module_utils._text import to_text
+from ansible.module_utils._text import to_text, to_bytes
 from ansible.parsing.splitter import parse_kv, split_args
 from ansible.plugins.loader import module_loader, action_loader
 from ansible.template import Templar
 from ansible.utils.sentinel import Sentinel
+
+try:
+    # use C version if possible for speedup
+    from yaml import CSafeLoader as SafeLoader
+except ImportError:
+    from yaml import SafeLoader
 
 
 # For filtering out modules correctly below
@@ -330,3 +339,25 @@ class ModuleArgsParser:
                                          obj=self._task_ds)
 
         return (action, args, delegate_to)
+
+
+def get_action_groups_config(action, collection_list):
+    name, action_path = module_loader.find_plugin_with_name(action, collection_list=collection_list, check_aliases=True)
+
+    # TODO: delete the if when lib/ansible/config/module_defaults.yml is deleted
+    if len(name.split('.')) == 1 or name.startswith('ansible.legacy.') or name.startswith('ansible_collections.ansible.builtin.'):
+        action_groups_path = os.path.join(os.path.dirname(__file__), '../config/module_defaults.yml')
+        shortname = name.split('.')[-1]
+    else:
+        collections_dir, collection_namespace, collection_name, section, subsection, shortname = name.split('.')
+        dir_list = action_path.split(os.path.sep)[0:-3]
+        action_groups_path = os.path.join(os.path.sep.join(dir_list), 'meta', 'action_groups.yml')
+
+    if os.path.exists(to_bytes(action_groups_path)):
+        with open(to_bytes(action_groups_path), 'rb') as config_def:
+            action_group_config = yaml_load(config_def, Loader=SafeLoader) or {}
+            groups = action_group_config.get('groupings', {}).get(shortname, [])
+    else:
+        groups = []
+
+    return groups
