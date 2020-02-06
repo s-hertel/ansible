@@ -856,8 +856,11 @@ def test_verify_file_hash_matching_hash(manifest_info):
     error_queue = []
 
     with patch.object(builtins, 'open', mock_open(read_data=data)) as m:
-        collection_req = collection.CollectionRequirement(namespace, name, './', server, [version], version, False)
-        collection_req._verify_file_hash(b'path/', 'file', digest, error_queue)
+        with patch.object(collection.os.path, 'isfile', MagicMock(return_value=True)) as mock_isfile:
+            collection_req = collection.CollectionRequirement(namespace, name, './', server, [version], version, False)
+            collection_req._verify_file_hash(b'path/', 'file', digest, error_queue)
+
+            assert mock_isfile.called_once
 
     assert error_queue == []
 
@@ -876,12 +879,38 @@ def test_verify_file_hash_mismatching_hash(manifest_info):
     error_queue = []
 
     with patch.object(builtins, 'open', mock_open(read_data=data)) as m:
-        collection_req = collection.CollectionRequirement(namespace, name, './', server, [version], version, False)
-        collection_req._verify_file_hash(b'path/', 'file', different_digest, error_queue)
+        with patch.object(collection.os.path, 'isfile', MagicMock(return_value=True)) as mock_isfile:
+            collection_req = collection.CollectionRequirement(namespace, name, './', server, [version], version, False)
+            collection_req._verify_file_hash(b'path/', 'file', different_digest, error_queue)
+
+            assert mock_isfile.called_once
 
     assert len(error_queue) == 1
     assert error_queue[0].installed == digest
     assert error_queue[0].expected == different_digest
+
+
+def test_verify_file_hash_deleted_file(manifest_info):
+    data = to_bytes(json.dumps(manifest_info))
+    digest = sha256(data).hexdigest()
+
+    namespace = manifest_info['collection_info']['namespace']
+    name = manifest_info['collection_info']['name']
+    version = manifest_info['collection_info']['version']
+    server = 'http://galaxy.ansible.com'
+
+    error_queue = []
+
+    with patch.object(builtins, 'open', mock_open(read_data=data)) as m:
+        with patch.object(collection.os.path, 'isfile', MagicMock(return_value=False)) as mock_isfile:
+            collection_req = collection.CollectionRequirement(namespace, name, './', server, [version], version, False)
+            collection_req._verify_file_hash(b'path/', 'file', digest, error_queue)
+
+            assert mock_isfile.called_once
+
+    assert len(error_queue) == 1
+    assert error_queue[0].installed == None
+    assert error_queue[0].expected == digest
 
 
 def test_consume_file(manifest):
@@ -1003,6 +1032,7 @@ def test_verify_modified_manifest(monkeypatch, mock_collection, manifest_info):
     local_collection = mock_collection()
     remote_collection = mock_collection(local=False)
 
+    monkeypatch.setattr(collection.os.path, 'isfile', MagicMock(return_value=True))
     monkeypatch.setattr(collection, '_get_tar_file_hash', MagicMock(side_effect=['manifest_checksum']))
     monkeypatch.setattr(collection, '_consume_file', MagicMock(side_effect=['manifest_checksum_modified', 'files_manifest_checksum']))
     monkeypatch.setattr(collection, '_get_json_from_tar_file', MagicMock(side_effect=[manifest_info, {'files': []}]))
@@ -1029,6 +1059,7 @@ def test_verify_modified_files_manifest(monkeypatch, mock_collection, manifest_i
     local_collection = mock_collection()
     remote_collection = mock_collection(local=False)
 
+    monkeypatch.setattr(collection.os.path, 'isfile', MagicMock(return_value=True))
     monkeypatch.setattr(collection, '_get_tar_file_hash', MagicMock(side_effect=['manifest_checksum']))
     monkeypatch.setattr(collection, '_consume_file', MagicMock(side_effect=['manifest_checksum', 'files_manifest_checksum_modified']))
     monkeypatch.setattr(collection, '_get_json_from_tar_file', MagicMock(side_effect=[manifest_info, {'files': []}]))
@@ -1056,6 +1087,7 @@ def test_verify_modified_files(monkeypatch, mock_collection, manifest_info, file
     local_collection = mock_collection()
     remote_collection = mock_collection(local=False)
 
+    monkeypatch.setattr(collection.os.path, 'isfile', MagicMock(return_value=True))
     monkeypatch.setattr(collection, '_get_tar_file_hash', MagicMock(side_effect=['manifest_checksum']))
     fakehashes = ['manifest_checksum', 'files_manifest_checksum', 'individual_file_checksum_modified']
     monkeypatch.setattr(collection, '_consume_file', MagicMock(side_effect=fakehashes))
@@ -1084,6 +1116,7 @@ def test_verify_identical(monkeypatch, mock_collection, manifest_info, files_man
     local_collection = mock_collection()
     remote_collection = mock_collection(local=False)
 
+    monkeypatch.setattr(collection.os.path, 'isfile', MagicMock(return_value=True))
     monkeypatch.setattr(collection, '_get_tar_file_hash', MagicMock(side_effect=['manifest_checksum']))
     monkeypatch.setattr(collection, '_consume_file', MagicMock(side_effect=['manifest_checksum', 'files_manifest_checksum', 'individual_file_checksum']))
     monkeypatch.setattr(collection, '_get_json_from_tar_file', MagicMock(side_effect=[manifest_info, files_manifest_info]))
