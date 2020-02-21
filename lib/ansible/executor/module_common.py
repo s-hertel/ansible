@@ -37,7 +37,7 @@ from ansible.errors import AnsibleError
 from ansible.executor.interpreter_discovery import InterpreterDiscoveryRequiredError
 from ansible.executor.powershell import module_manifest as ps_manifest
 from ansible.module_utils._text import to_bytes, to_text, to_native
-from ansible.plugins.loader import module_utils_loader
+from ansible.plugins.loader import module_loader, module_utils_loader
 # Must import strategy and use write_locks from there
 # If we import write_locks directly then we end up binding a
 # variable to the object and then it never gets updated.
@@ -1288,7 +1288,12 @@ def modify_module(module_name, module_path, module_args, templar, task_vars=None
     return (b_module_data, module_style, shebang)
 
 
-def get_action_args_with_defaults(action, args, defaults, templar):
+def get_action_args_with_defaults(action, args, defaults, templar, collection_list=None, action_groups=None):
+
+    if collection_list is None:
+        collection_list = []
+    if action_groups is None:
+        action_groups = {}
 
     tmp_args = {}
     module_defaults = {}
@@ -1302,10 +1307,28 @@ def get_action_args_with_defaults(action, args, defaults, templar):
     if module_defaults:
         module_defaults = templar.template(module_defaults)
 
+        # TODO: Remove in migration
         # deal with configured group defaults first
         if action in C.config.module_defaults_groups:
             for group in C.config.module_defaults_groups.get(action, []):
                 tmp_args.update((module_defaults.get('group/{0}'.format(group)) or {}).copy())
+
+        # deal with configured action groups before actions
+        name, action_path = module_loader.find_plugin_with_name(action, collection_list=collection_list, check_aliases=True)
+
+        # Looks like a collection, so check group/groupname and group/namespace.collectionname.groupname
+        # (since unqualified group names defined in module_defaults can apply to many collections, fully qualified groups should be preferred)
+        if len(name.split('.')) == 6:
+            collections_dir, collection_namespace, collection_name, section, subsection, shortname = name.split('.')
+            collection_key = '%s.%s' % (collection_namespace, collection_name)
+            groups = []
+            for group in action_groups[collection_key]:
+                if shortname not in action_groups[collection_key][group]:
+                    continue
+                if 'group/{0}.{1}'.format(collection_key, group) in module_defaults:
+                    tmp_args.update((module_defaults.get('group/{0}.{1}'.format(collection_key, group)) or {}).copy())
+                elif 'group/{0}'.format(group) in module_defaults:
+                    tmp_args.update((module_defaults.get('group/{0}'.format(group)) or {}).copy())
 
         # handle specific action defaults
         if action in module_defaults:

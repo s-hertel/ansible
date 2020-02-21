@@ -50,6 +50,8 @@ class TestNetworkFacts(unittest.TestCase):
         self.task.async_val = False
         self.task.args = {'gather_subset': 'min'}
         self.task.module_defaults = [{'ios_facts': {'gather_subset': 'min'}}]
+        self.task.collections = []
+        self.task.action_defaults = {}
 
         plugin = ActionModule(self.task, self.connection, self.play_context, loader=None, templar=self.templar, shared_loader_obj=None)
         plugin._execute_module = MagicMock()
