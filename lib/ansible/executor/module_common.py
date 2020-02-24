@@ -37,7 +37,7 @@ from ansible.errors import AnsibleError
 from ansible.executor.interpreter_discovery import InterpreterDiscoveryRequiredError
 from ansible.executor.powershell import module_manifest as ps_manifest
 from ansible.module_utils._text import to_bytes, to_text, to_native
-from ansible.plugins.loader import module_utils_loader
+from ansible.plugins.loader import module_loader, module_utils_loader
 # Must import strategy and use write_locks from there
 # If we import write_locks directly then we end up binding a
 # variable to the object and then it never gets updated.
@@ -1288,7 +1288,10 @@ def modify_module(module_name, module_path, module_args, templar, task_vars=None
     return (b_module_data, module_style, shebang)
 
 
-def get_action_args_with_defaults(action, args, defaults, templar):
+def get_action_args_with_defaults(action, args, defaults, templar, collection_list=None):
+
+    if collection_list is None:
+        collection_list = []
 
     tmp_args = {}
     module_defaults = {}
@@ -1303,8 +1306,12 @@ def get_action_args_with_defaults(action, args, defaults, templar):
         module_defaults = templar.template(module_defaults)
 
         # deal with collection-specific group defaults
-        if action in module_defaults:
-            tmp_args.update((module_defaults[action]).copy())
+        name, action_path = module_loader.find_plugin_with_name(action, collection_list=collection_list, check_aliases=True)
+        if len(name.split('.')) == 6:
+            collections_dir, collection_namespace, collection_name, section, subsection, shortname = name.split('.')
+            name = '%s.%s.%s' % (collection_namespace, collection_name, shortname)
+        if name in module_defaults:
+            tmp_args.update((module_defaults[name]).copy())
 
         # deal with configured group defaults first
         if action in C.config.module_defaults_groups:
