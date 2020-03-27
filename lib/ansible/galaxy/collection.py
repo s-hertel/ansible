@@ -53,12 +53,7 @@ ModifiedContent = namedtuple('ModifiedContent', ['filename', 'expected', 'instal
 
 class CollectionRequirement:
 
-    _FILE_MAPPING = [
-        (b'MANIFEST.json', 'manifest_file'),
-        (b'FILES.json', 'files_file'),
-        (b'galaxy.yml', 'galaxy_yml'),
-        (b'galaxy.yaml', 'galaxy_yml'),
-    ]
+    _FILE_MAPPING = [(b'MANIFEST.json', 'manifest_file'), (b'FILES.json', 'files_file')]
 
     def __init__(self, namespace, name, b_path, api, versions, requirement, force, parent=None, metadata=None,
                  files=None, skip=False):
@@ -100,6 +95,13 @@ class CollectionRequirement:
 
     def __unicode__(self):
         return u"%s.%s" % (self.namespace, self.name)
+
+    @staticmethod
+    def updated_manifest(b_path):
+        b_galaxy_path = os.path.join(b_path, b'galaxy.yml')
+        if not os.path.isfile(b_galaxy_path):
+            return {}
+        return {'manifest_file': _build_manifest(**_get_galaxy_yml(b_galaxy_path))}
 
     @property
     def metadata(self):
@@ -329,19 +331,43 @@ class CollectionRequirement:
                         raise AnsibleError("Collection tar file member %s does not contain a valid json string."
                                            % n_member_name)
 
-        meta = info['manifest_file']['collection_info']
-        files = info['files_file']['files']
+        return CollectionRequirement.from_manifest(b_path, info)
 
-        namespace = meta['namespace']
-        name = meta['name']
-        version = meta['version']
-        meta = CollectionVersionMetadata(namespace, name, version, None, None, meta['dependencies'])
-
-        return CollectionRequirement(namespace, name, b_path, None, [version], version, force, parent=parent,
-                                     metadata=meta, files=files)
 
     @staticmethod
-    def from_path(b_path, force, parent=None):
+    def from_manifest(b_path, manifest_data, only_installed=True):
+        if manifest_data:
+            manifest = manifest_data['collection_info']
+            namespace = manifest['namespace']
+            name = manifest['name']
+            version = to_text(manifest['version'], errors='surrogate_or_strict')
+            if not hasattr(LooseVersion(version), 'version'):
+                display.warning("Collection at '%s' does not have a valid version set, falling back to '*'. Found "
+                                "version: '%s'" % (to_text(b_path), version))
+                version = '*'
+
+            dependencies = manifest['dependencies']
+        else:
+            if only_installed:
+                warning = "Collection at '%s' does not have a MANIFEST.json file, cannot detect version." % to_text(b_path)
+            else:
+                warning = "Collection at '%s' does not have a MANIFEST.json or galaxy.yml file, cannot detect version." % to_text(b_path)
+            display.warning(warning)
+            parent_dir, name = os.path.split(to_text(b_path, errors='surrogate_or_strict'))
+            namespace = os.path.split(parent_dir)[1]
+            version = '*'
+            dependencies = {}
+
+        meta = CollectionVersionMetadata(namespace, name, version, None, None, dependencies)
+
+        files = manifest_data.get('files_file', {}).get('files', {})
+
+        return CollectionRequirement(namespace, name, b_path, None, [version], version, force, parent=parent,
+                                     metadata=meta, files=files, skip=True)
+
+
+    @staticmethod
+    def from_path(b_path, force, parent=None, only_installed=True):
         info = {}
         for b_file_name, property_name in CollectionRequirement._FILE_MAPPING:
             b_file_path = os.path.join(b_path, b_file_name)
@@ -351,48 +377,16 @@ class CollectionRequirement:
             b_file_ext = b_file_name.split(b'.')[-1]
             with open(b_file_path, 'rb') as file_obj:
                 try:
-                    if b_file_ext in (b'yml', b'yaml'):
-                        info[property_name] = _get_galaxy_yml(b_file_path)
-                    else:
-                        info[property_name] = json.loads(to_text(file_obj.read(), errors='surrogate_or_strict'))
+                    info[property_name] = json.loads(to_text(file_obj.read(), errors='surrogate_or_strict'))
                 except ValueError:
                     raise AnsibleError("Collection file at '%s' does not contain a valid json string."
                                        % to_native(b_file_path))
 
-        if 'manifest_file' in info:
-            manifest = info['manifest_file']['collection_info']
-            namespace = manifest['namespace']
-            name = manifest['name']
-            version = to_text(manifest['version'], errors='surrogate_or_strict')
+        # Falling back to the galaxy file if the collection is not intalled
+        if not 'manifest_file' in info and not only_installed:
+            info.update(CollectionRequirement.updated_manifest(b_path))
 
-            if not hasattr(LooseVersion(version), 'version'):
-                display.warning("Collection at '%s' does not have a valid version set, falling back to '*'. Found "
-                                "version: '%s'" % (to_text(b_path), version))
-                version = '*'
-
-            dependencies = manifest['dependencies']
-        elif 'galaxy_yml' in info:
-            namespace = info['galaxy_yml']['namespace']
-            name = info['galaxy_yml']['name']
-            version = to_text(info['galaxy_yml']['version'], errors='surrogate_or_strict')
-            dependencies = info['galaxy_yml']['dependencies']
-            if dependencies is None:
-                dependencies = {}
-        else:
-            display.warning("Collection at '%s' does not have a MANIFEST.json or galaxy.yml file, cannot detect version."
-                            % to_text(b_path))
-            parent_dir, name = os.path.split(to_text(b_path, errors='surrogate_or_strict'))
-            namespace = os.path.split(parent_dir)[1]
-
-            version = '*'
-            dependencies = {}
-
-        meta = CollectionVersionMetadata(namespace, name, version, None, None, dependencies)
-
-        files = info.get('files_file', {}).get('files', {})
-
-        return CollectionRequirement(namespace, name, b_path, None, [version], version, force, parent=parent,
-                                     metadata=meta, files=files, skip=True)
+        return CollectionRequirement.from_manifest(b_path, info.get('manifest_file'), only_installed=only_installed)
 
     @staticmethod
     def from_name(collection, apis, requirement, force, parent=None):
@@ -912,7 +906,7 @@ def _build_collection_tar(b_collection_path, b_tar_path, collection_manifest, fi
         display.display('Created collection for %s at %s' % (collection_name, to_text(b_tar_path)))
 
 
-def find_existing_collections(path):
+def find_existing_collections(path, only_installed=True):
     collections = []
 
     b_path = to_bytes(path, errors='surrogate_or_strict')
@@ -924,7 +918,7 @@ def find_existing_collections(path):
         for b_collection in os.listdir(b_namespace_path):
             b_collection_path = os.path.join(b_namespace_path, b_collection)
             if os.path.isdir(b_collection_path):
-                req = CollectionRequirement.from_path(b_collection_path, False)
+                req = CollectionRequirement.from_path(b_collection_path, False, only_installed=only_installed)
                 display.vvv("Found installed collection %s:%s at '%s'" % (to_text(req), req.latest_version,
                                                                           to_text(b_collection_path)))
                 collections.append(req)
