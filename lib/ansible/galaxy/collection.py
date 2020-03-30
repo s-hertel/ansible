@@ -41,6 +41,8 @@ from ansible.utils.display import Display
 from ansible.utils.hashing import secure_hash, secure_hash_s
 from ansible.utils.version import SemanticVersion
 from ansible.module_utils.urls import open_url
+# TODO - move scm_archive_role into common code if it's going to be used for both roles and collections
+from ansible.playbook.role.requirement import RoleRequirement
 
 urlparse = six.moves.urllib.parse.urlparse
 urllib_error = six.moves.urllib.error
@@ -462,6 +464,13 @@ class CollectionRequirement:
         return req
 
 
+def get_build_path(collection_meta, output_path):
+    return os.path.join(output_path, "%s-%s-%s.tar.gz" % (collection_meta['namespace'],
+                                                          collection_meta['name'],
+                                                          collection_meta['version']))
+
+
+
 def build_collection(collection_path, output_path, force):
     """
     Creates the Ansible collection artifact in a .tar.gz file.
@@ -482,9 +491,7 @@ def build_collection(collection_path, output_path, force):
                                           collection_meta['build_ignore'])
     collection_manifest = _build_manifest(**collection_meta)
 
-    collection_output = os.path.join(output_path, "%s-%s-%s.tar.gz" % (collection_meta['namespace'],
-                                                                       collection_meta['name'],
-                                                                       collection_meta['version']))
+    collection_output = get_build_path(collection_meta, output_path)
 
     b_collection_output = to_bytes(collection_output, errors='surrogate_or_strict')
     if os.path.exists(b_collection_output):
@@ -1007,9 +1014,9 @@ def _build_dependency_map(collections, existing_collections, b_temp_path, apis, 
     dependency_map = {}
 
     # First build the dependency map on the actual requirements
-    for name, version, source in collections:
+    for name, version, source, scm in collections:
         _get_collection_info(dependency_map, existing_collections, name, version, source, b_temp_path, apis,
-                             validate_certs, (force or force_deps), allow_pre_release=allow_pre_release)
+                             validate_certs, (force or force_deps), allow_pre_release=allow_pre_release, scm=scm)
 
     checked_parents = set([to_text(c) for c in dependency_map.values() if c.skip])
     while len(dependency_map) != len(checked_parents):
@@ -1044,8 +1051,32 @@ def _build_dependency_map(collections, existing_collections, b_temp_path, apis, 
     return dependency_map
 
 
+def _collection_from_development(b_tar_path, b_dest_path, force):
+    # This makes an assumption that the repo is the top level of a collection that contains a galaxy.yml
+    # Repos containing multiple collections could be added but isn't currently functional
+
+    # Extract the tarfile
+    with _tempdir() as b_collection_init:
+        with tarfile.open(b_tar_path, mode='r') as collection_tar:
+            collection_tar.extractall(path=to_text(b_collection_init))
+
+        for potential_collection in os.listdir(b_collection_init):
+            collection_path = os.path.join(to_text(b_collection_init), to_text(potential_collection))
+            galaxy_path = os.path.join(collection_path, 'galaxy.yml')
+
+            # Locate the collection
+            if os.path.exists(galaxy_path):
+                # Build the collection
+                build_collection(collection_path, to_text(b_dest_path), force)
+
+                # Use the tar.gz to create the CollectionRequirement
+                collection_meta = _get_galaxy_yml(galaxy_path)
+                collection_output_path = get_build_path(collection_meta, to_text(b_dest_path))
+                return CollectionRequirement.from_tar(collection_output_path, force)
+
+
 def _get_collection_info(dep_map, existing_collections, collection, requirement, source, b_temp_path, apis,
-                         validate_certs, force, parent=None, allow_pre_release=False):
+                         validate_certs, force, parent=None, allow_pre_release=False, scm=None):
     dep_msg = ""
     if parent:
         dep_msg = " - as dependency of %s" % parent
@@ -1062,10 +1093,13 @@ def _get_collection_info(dep_map, existing_collections, collection, requirement,
         except urllib_error.URLError as err:
             raise AnsibleError("Failed to download collection tar from '%s': %s"
                                % (to_native(collection), to_native(err)))
-
-    if b_tar_path:
+    if scm:
+        b_tar_path = RoleRequirement.scm_archive_role(collection, scm='git', name=scm, version='HEAD', keep_scm_meta=False)
+        req = _collection_from_development(b_tar_path, b_temp_path, force)
+    elif b_tar_path:
         req = CollectionRequirement.from_tar(b_tar_path, force, parent=parent)
 
+    if b_tar_path:
         collection_name = to_text(req)
         if collection_name in dep_map:
             collection_info = dep_map[collection_name]

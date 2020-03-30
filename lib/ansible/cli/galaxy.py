@@ -362,6 +362,7 @@ class GalaxyCLI(CLI):
                                         help='A file containing a list of collections to be installed.')
             install_parser.add_argument('--pre', dest='allow_pre_release', action='store_true',
                                         help='Include pre-release versions. Semantic versioning pre-releases are ignored by default')
+            install_parser.add_argument('--dev', dest='dev', action='store_true', default=False, help='Install a collection from source code')
         else:
             install_parser.add_argument('-r', '--role-file', dest='role_file',
                                         help='A file containing a list of roles to be imported.')
@@ -482,7 +483,7 @@ class GalaxyCLI(CLI):
     def api(self):
         return self.api_servers[0]
 
-    def _parse_requirements_file(self, requirements_file, allow_old_format=True):
+    def _parse_requirements_file(self, requirements_file, allow_old_format=True, collection_scm=False):
         """
         Parses an Ansible requirement.yml file and returns all the roles and/or collections defined in it. There are 2
         requirements file format:
@@ -576,6 +577,10 @@ class GalaxyCLI(CLI):
                     if req_name is None:
                         raise AnsibleError("Collections requirement entry should contain the key name.")
 
+                    req_scm = collection_req.get('scm', None)
+                    if req_scm and not collection_scm:
+                        raise AnsibleError("To install collection requirement entry %s from source code, use the --dev flag" % req_name)
+
                     req_version = collection_req.get('version', '*')
                     req_source = collection_req.get('source', None)
                     if req_source:
@@ -584,9 +589,9 @@ class GalaxyCLI(CLI):
                         req_source = next(iter([a for a in self.api_servers if req_source in [a.name, a.api_server]]),
                                           GalaxyAPI(self.galaxy, "explicit_requirement_%s" % req_name, req_source))
 
-                    requirements['collections'].append((req_name, req_version, req_source))
+                    requirements['collections'].append((req_name, req_version, req_source, req_scm))
                 else:
-                    requirements['collections'].append((collection_req, '*', None))
+                    requirements['collections'].append((collection_req, '*', None, None))
 
         return requirements
 
@@ -675,14 +680,14 @@ class GalaxyCLI(CLI):
 
         return meta_value
 
-    def _require_one_of_collections_requirements(self, collections, requirements_file):
+    def _require_one_of_collections_requirements(self, collections, requirements_file, collection_scm=False):
         if collections and requirements_file:
             raise AnsibleError("The positional collection_name arg and --requirements-file are mutually exclusive.")
         elif not collections and not requirements_file:
             raise AnsibleError("You must specify a collection name or a requirements file.")
         elif requirements_file:
             requirements_file = GalaxyCLI._resolve_path(requirements_file)
-            requirements = self._parse_requirements_file(requirements_file, allow_old_format=False)['collections']
+            requirements = self._parse_requirements_file(requirements_file, allow_old_format=False, collection_scm=collection_scm)['collections']
         else:
             requirements = []
             for collection_input in collections:
@@ -693,7 +698,7 @@ class GalaxyCLI(CLI):
                     name = collection_input
                 else:
                     name, dummy, requirement = collection_input.partition(':')
-                requirements.append((name, requirement or '*', None))
+                requirements.append((name, requirement or '*', None, None))
         return requirements
 
     ############################
@@ -964,6 +969,9 @@ class GalaxyCLI(CLI):
             no_deps = context.CLIARGS['no_deps']
             force_deps = context.CLIARGS['force_with_deps']
 
+            # Allow testing of non-built collections
+            dev = context.CLIARGS['dev']
+
             if collections and requirements_file:
                 raise AnsibleError("The positional collection_name arg and --requirements-file are mutually exclusive.")
             elif not collections and not requirements_file:
@@ -971,7 +979,7 @@ class GalaxyCLI(CLI):
 
             if requirements_file:
                 requirements_file = GalaxyCLI._resolve_path(requirements_file)
-            requirements = self._require_one_of_collections_requirements(collections, requirements_file)
+            requirements = self._require_one_of_collections_requirements(collections, requirements_file, collection_scm=dev)
 
             output_path = GalaxyCLI._resolve_path(output_path)
             collections_path = C.COLLECTIONS_PATHS
