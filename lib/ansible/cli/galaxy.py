@@ -1221,7 +1221,7 @@ class GalaxyCLI(CLI):
                     continue
 
                 collection_found = True
-                collection = CollectionRequirement.from_path(b_collection_path, False)
+                collection = CollectionRequirement.from_path(b_collection_path, False, fallback_pre_build=True)
                 fqcn_width, version_width = _get_collection_widths(collection)
 
                 _display_header(collection_path, 'Collection', 'Version', fqcn_width, version_width)

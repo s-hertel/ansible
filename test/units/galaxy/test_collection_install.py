@@ -160,13 +160,14 @@ def galaxy_server():
 
 
 def test_build_requirement_from_path(collection_artifact):
-    actual = collection.CollectionRequirement.from_path(collection_artifact[0], True)
+    force = True
+    actual = collection.CollectionRequirement.from_path(collection_artifact[0], force)
 
     assert actual.namespace == u'ansible_namespace'
     assert actual.name == u'collection'
     assert actual.b_path == collection_artifact[0]
     assert actual.api is None
-    assert actual.skip is True
+    assert actual.skip is bool(not force)
     assert actual.versions == set([u'*'])
     assert actual.latest_version == u'*'
     assert actual.dependencies == {}
@@ -188,14 +189,15 @@ def test_build_requirement_from_path_with_manifest(version, collection_artifact)
     with open(manifest_path, 'wb') as manifest_obj:
         manifest_obj.write(to_bytes(manifest_value))
 
-    actual = collection.CollectionRequirement.from_path(collection_artifact[0], True)
+    force = True
+    actual = collection.CollectionRequirement.from_path(collection_artifact[0], force)
 
     # While the folder name suggests a different collection, we treat MANIFEST.json as the source of truth.
     assert actual.namespace == u'namespace'
     assert actual.name == u'name'
     assert actual.b_path == collection_artifact[0]
     assert actual.api is None
-    assert actual.skip is True
+    assert actual.skip is bool(not force)
     assert actual.versions == set([to_text(version)])
     assert actual.latest_version == to_text(version)
     assert actual.dependencies == {'ansible_namespace.collection': '*'}
@@ -227,14 +229,15 @@ def test_build_requirement_from_path_no_version(collection_artifact, monkeypatch
     mock_display = MagicMock()
     monkeypatch.setattr(Display, 'display', mock_display)
 
-    actual = collection.CollectionRequirement.from_path(collection_artifact[0], True)
+    force = True
+    actual = collection.CollectionRequirement.from_path(collection_artifact[0], force)
 
     # While the folder name suggests a different collection, we treat MANIFEST.json as the source of truth.
     assert actual.namespace == u'namespace'
     assert actual.name == u'name'
     assert actual.b_path == collection_artifact[0]
     assert actual.api is None
-    assert actual.skip is True
+    assert actual.skip is bool(not force)
     assert actual.versions == set(['*'])
     assert actual.latest_version == u'*'
     assert actual.dependencies == {}
@@ -736,7 +739,7 @@ def test_install_collections_existing_without_force(collection_artifact, monkeyp
 
     # If we don't delete collection_path it will think the original build skeleton is installed so we expect a skip
     collection.install_collections([(to_text(collection_tar), '*', None,)], to_text(temp_path),
-                                   [u'https://galaxy.ansible.com'], True, False, False, False, False)
+                                   [u'https://galaxy.ansible.com'], True, False, False, False, False, False, False)
 
     assert os.path.isdir(collection_path)
 

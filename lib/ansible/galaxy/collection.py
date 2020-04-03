@@ -189,22 +189,69 @@ class CollectionRequirement:
 
         return to_text(b_collection_path, errors='surrogate_or_strict')
 
-    def install(self, path, b_temp_path):
-        if self.skip:
-            display.display("Skipping '%s' as it is already installed" % to_text(self))
-            return
+    def install_pre_build(self, b_collection_path):
+        """
+        Installs the Ansible artifact from a collection directory containing a galaxy.yml file.
 
-        # Install if it is not
-        collection_path = os.path.join(path, self.namespace, self.name)
-        b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
-        display.display("Installing '%s:%s' to '%s'" % (to_text(self), self.latest_version, collection_path))
+        :param b_collection_path: The installation path for the extracted collection artifact.
+        """
 
-        if self.b_path is None:
-            self.b_path = self.download(b_temp_path)
 
-        if os.path.exists(b_collection_path):
-            shutil.rmtree(b_collection_path)
-        os.makedirs(b_collection_path)
+        b_pre_build = self.b_path
+
+        # Create MANIFEST.json and FILES.json contents
+        info = CollectionRequirement.pre_build_info(b_pre_build)
+
+        files_manifest = info['files_file']
+        collection_manifest = info['manifest_file']
+
+        files_manifest_json = to_bytes(json.dumps(files_manifest, indent=True), errors='surrogate_or_strict')
+        collection_manifest['file_manifest_file']['chksum_sha256'] = secure_hash_s(files_manifest_json, hash_func=sha256)
+        collection_manifest_json = to_bytes(json.dumps(collection_manifest, indent=True), errors='surrogate_or_strict')
+
+        # Write contents to the files
+        for name, b in [('MANIFEST.json', collection_manifest_json), ('FILES.json', files_manifest_json)]:
+            b_path = os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
+            b_io = BytesIO(b)
+            with open(b_path, 'wb') as file_obj:
+                shutil.copyfileobj(b_io, file_obj)
+
+            os.chmod(b_path, 0o0644)
+
+        base_directories = []
+        for file_info in files_manifest['files']:
+            if file_info['name'] == '.':
+                continue
+
+            src_file = os.path.join(self.b_path, to_bytes(file_info['name']))
+            dest_file = os.path.join(b_collection_path, to_bytes(file_info['name']))
+
+            if any([src_file.startswith(directory) for directory in base_directories]):
+                continue
+
+            existing_is_exec = os.stat(src_file).st_mode & stat.S_IXUSR
+            mode = 0o0755 if existing_is_exec else 0o0644
+
+            if os.path.isdir(src_file):
+                mode = 0o0755
+                base_directories.append(src_file)
+                shutil.copytree(src_file, dest_file)
+            else:
+                shutil.copyfile(src_file, dest_file)
+
+            os.chmod(dest_file, mode)
+
+        collection_name = "%s.%s" % (collection_manifest['collection_info']['namespace'],
+                                     collection_manifest['collection_info']['name'])
+        display.display('Created collection for %s at %s' % (collection_name, to_text(b_collection_path)))
+
+    def install_artifact(self, b_collection_path, b_temp_path):
+        """
+        Installs the Ansible artifact from a .tar.gz file.
+
+        :param b_collection_path: The final installation path for the extracted collection artifact.
+        :param b_temp_path: The temporary path for extracting the collection artifact.
+        """
 
         try:
             with tarfile.open(self.b_path, mode='r') as collection_tar:
@@ -224,7 +271,7 @@ class CollectionRequirement:
                         _extract_tar_file(collection_tar, file_name, b_collection_path, b_temp_path,
                                           expected_hash=file_info['chksum_sha256'])
                     else:
-                        os.makedirs(os.path.join(b_collection_path, to_bytes(file_name, errors='surrogate_or_strict')))
+                        os.makedirs(os.path.join(b_collection_path, to_bytes(file_name, errors='surrogate_or_strict')), mode=0o0755)
         except Exception:
             # Ensure we don't leave the dir behind in case of a failure.
             shutil.rmtree(b_collection_path)
@@ -234,6 +281,28 @@ class CollectionRequirement:
                 os.rmdir(b_namespace_path)
 
             raise
+
+    def install(self, path, b_temp_path):
+        if self.skip:
+            display.display("Skipping '%s' as it is already installed" % to_text(self))
+            return
+
+        # Install if it is not
+        collection_path = os.path.join(path, self.namespace, self.name)
+        b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
+        display.display("Installing '%s:%s' to '%s'" % (to_text(self), self.latest_version, collection_path))
+
+        if self.b_path is None:
+            self.b_path = self.download(b_temp_path)
+
+        if os.path.exists(b_collection_path):
+            shutil.rmtree(b_collection_path)
+        os.makedirs(b_collection_path)
+
+        if os.path.isfile(self.b_path):
+            self.install_artifact(b_collection_path, b_temp_path)
+        else:
+            self.install_pre_build(b_collection_path)
 
     def set_latest_version(self):
         self.versions = set([self.latest_version])
@@ -386,19 +455,8 @@ class CollectionRequirement:
                                      metadata=meta, files=files, allow_pre_releases=allow_pre_release)
 
     @staticmethod
-    def from_path(b_path, force, parent=None):
-        info = {}
-        for b_file_name, property_name in CollectionRequirement._FILE_MAPPING:
-            b_file_path = os.path.join(b_path, b_file_name)
-            if not os.path.exists(b_file_path):
-                continue
-
-            with open(b_file_path, 'rb') as file_obj:
-                try:
-                    info[property_name] = json.loads(to_text(file_obj.read(), errors='surrogate_or_strict'))
-                except ValueError:
-                    raise AnsibleError("Collection file at '%s' does not contain a valid json string."
-                                       % to_native(b_file_path))
+    def from_path(b_path, force, parent=None, fallback_pre_build=False):
+        info = CollectionRequirement.collection_info(b_path, fallback_pre_build)
 
         allow_pre_release = False
         if 'manifest_file' in info:
@@ -431,8 +489,66 @@ class CollectionRequirement:
 
         files = info.get('files_file', {}).get('files', {})
 
+        skip = not force
+
         return CollectionRequirement(namespace, name, b_path, None, [version], version, force, parent=parent,
-                                     metadata=meta, files=files, skip=True, allow_pre_releases=allow_pre_release)
+                                     metadata=meta, files=files, skip=skip, allow_pre_releases=allow_pre_release)
+
+
+    @staticmethod
+    def artifact_info(b_path):
+        """
+        Provides the MANIFEST.json and FILES.json data of an installed artifact
+
+        :param b_path: The collection directory
+        :return: A dictionary containing the keys 'files_file' and 'manifest_file' if the manifest files exist.
+        """
+
+        info = {}
+        for b_file_name, property_name in CollectionRequirement._FILE_MAPPING:
+            b_file_path = os.path.join(b_path, b_file_name)
+            if not os.path.exists(b_file_path):
+                continue
+
+            with open(b_file_path, 'rb') as file_obj:
+                try:
+                    info[property_name] = json.loads(to_text(file_obj.read(), errors='surrogate_or_strict'))
+                except ValueError:
+                    raise AnsibleError("Collection file at '%s' does not contain a valid json string."
+                                       % to_native(b_file_path))
+
+        return info
+
+
+    @staticmethod
+    def pre_build_info(b_path):
+        """
+        Provies the MANIFEST.json and FILES.json data that would be built from the galaxy.yml
+
+        :param b_path: The collection directory
+        :return: A dictionary containing the keys 'files_file' and 'manifest_file' if the galaxy.yml exists.
+        """
+
+        b_galaxy_path = os.path.join(b_path, b'galaxy.yml')
+
+        info = {}
+        if os.path.exists(b_galaxy_path):
+            collection_meta = _get_galaxy_yml(b_galaxy_path)
+            info['files_file'] = _build_files_manifest(b_path, collection_meta['namespace'], collection_meta['name'],
+                                                       collection_meta['build_ignore'])
+            info['manifest_file'] = _build_manifest(**collection_meta)
+
+        return info
+
+
+    @staticmethod
+    def collection_info(b_path, fallback_pre_build=False):
+        info = CollectionRequirement.artifact_info(b_path)
+        if not info and fallback_pre_build:
+            info = CollectionRequirement.pre_build_info(b_path)
+
+        return info
+
 
     @staticmethod
     def from_name(collection, apis, requirement, force, parent=None, allow_pre_release=False):
@@ -487,10 +603,11 @@ def build_collection(collection_path, output_path, force):
     if not os.path.exists(b_galaxy_path):
         raise AnsibleError("The collection galaxy.yml path '%s' does not exist." % to_native(b_galaxy_path))
 
-    collection_meta = _get_galaxy_yml(b_galaxy_path)
-    file_manifest = _build_files_manifest(b_collection_path, collection_meta['namespace'], collection_meta['name'],
-                                          collection_meta['build_ignore'])
-    collection_manifest = _build_manifest(**collection_meta)
+    info = CollectionRequirement.pre_build_info(b_collection_path)
+
+    collection_manifest = info['manifest_file']
+    collection_meta = collection_manifest['collection_info']
+    file_manifest = info['files_file']
 
     collection_output = os.path.join(output_path, "%s-%s-%s.tar.gz" % (collection_meta['namespace'],
                                                                        collection_meta['name'],
@@ -582,7 +699,7 @@ def publish_collection(collection_path, api, wait, timeout):
 
 
 def install_collections(collections, output_path, apis, validate_certs, ignore_errors, no_deps, force, force_deps,
-                        allow_pre_release=False):
+                        allow_pre_release=False, fallback_pre_build=True):
     """
     Install Ansible collections to the path specified.
 
@@ -595,14 +712,14 @@ def install_collections(collections, output_path, apis, validate_certs, ignore_e
     :param force: Re-install a collection if it has already been installed.
     :param force_deps: Re-install a collection as well as its dependencies if they have already been installed.
     """
-    existing_collections = find_existing_collections(output_path)
+    existing_collections = find_existing_collections(output_path, fallback_pre_build=fallback_pre_build)
 
     with _tempdir() as b_temp_path:
         display.display("Process install dependency map")
         with _display_progress():
             dependency_map = _build_dependency_map(collections, existing_collections, b_temp_path, apis,
                                                    validate_certs, force, force_deps, no_deps,
-                                                   allow_pre_release=allow_pre_release)
+                                                   allow_pre_release=allow_pre_release, fallback_pre_build=fallback_pre_build)
 
         display.display("Starting collection install process")
         with _display_progress():
@@ -668,7 +785,7 @@ def verify_collections(collections, search_paths, apis, validate_certs, ignore_e
                     for search_path in search_paths:
                         b_search_path = to_bytes(os.path.join(search_path, namespace, name), errors='surrogate_or_strict')
                         if os.path.isdir(b_search_path):
-                            local_collection = CollectionRequirement.from_path(b_search_path, False)
+                            local_collection = CollectionRequirement.from_path(b_search_path, False, fallback_pre_build=False)
                             break
                     if local_collection is None:
                         raise AnsibleError(message='Collection %s is not installed in any of the collection paths.' % collection_name)
@@ -875,7 +992,15 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
     def _walk(b_path, b_top_level_dir):
         for b_item in os.listdir(b_path):
             b_abs_path = os.path.join(b_path, b_item)
-            b_rel_base_dir = b'' if b_path == b_top_level_dir else b_path[len(b_top_level_dir) + 1:]
+
+            if b_path == b_top_level_dir:
+                b_rel_base_dir = b''
+            elif to_text(b_path, errors='surrogate_or_strict').startswith(os.path.sep):
+                b_rel_base_dir = b_path[len(b_top_level_dir) + 1:]
+            else:
+                # FIXME can this be consistent instead
+                b_rel_base_dir = b_path[len(b_top_level_dir) + 0:]
+
             b_rel_path = os.path.join(b_rel_base_dir, b_item)
             rel_path = to_text(b_rel_path, errors='surrogate_or_strict')
 
@@ -992,7 +1117,7 @@ def _build_collection_tar(b_collection_path, b_tar_path, collection_manifest, fi
         display.display('Created collection for %s at %s' % (collection_name, to_text(b_tar_path)))
 
 
-def find_existing_collections(path):
+def find_existing_collections(path, fallback_pre_build=True):
     collections = []
 
     b_path = to_bytes(path, errors='surrogate_or_strict')
@@ -1004,7 +1129,7 @@ def find_existing_collections(path):
         for b_collection in os.listdir(b_namespace_path):
             b_collection_path = os.path.join(b_namespace_path, b_collection)
             if os.path.isdir(b_collection_path):
-                req = CollectionRequirement.from_path(b_collection_path, False)
+                req = CollectionRequirement.from_path(b_collection_path, False, fallback_pre_build=fallback_pre_build)
                 display.vvv("Found installed collection %s:%s at '%s'" % (to_text(req), req.latest_version,
                                                                           to_text(b_collection_path)))
                 collections.append(req)
@@ -1013,13 +1138,14 @@ def find_existing_collections(path):
 
 
 def _build_dependency_map(collections, existing_collections, b_temp_path, apis, validate_certs, force, force_deps,
-                          no_deps, allow_pre_release=False):
+                          no_deps, allow_pre_release=False, fallback_pre_build=False):
     dependency_map = {}
 
     # First build the dependency map on the actual requirements
     for name, version, source in collections:
         _get_collection_info(dependency_map, existing_collections, name, version, source, b_temp_path, apis,
-                             validate_certs, (force or force_deps), allow_pre_release=allow_pre_release)
+                             validate_certs, (force or force_deps), allow_pre_release=allow_pre_release,
+                             fallback_pre_build=fallback_pre_build)
 
     checked_parents = set([to_text(c) for c in dependency_map.values() if c.skip])
     while len(dependency_map) != len(checked_parents):
@@ -1035,7 +1161,8 @@ def _build_dependency_map(collections, existing_collections, b_temp_path, apis, 
                     for dep_name, dep_requirement in parent_info.dependencies.items():
                         _get_collection_info(dependency_map, existing_collections, dep_name, dep_requirement,
                                              parent_info.api, b_temp_path, apis, validate_certs, force_deps,
-                                             parent=parent, allow_pre_release=allow_pre_release)
+                                             parent=parent, allow_pre_release=allow_pre_release,
+                                             fallback_pre_build=fallback_pre_build)
 
                     checked_parents.add(parent)
 
@@ -1055,7 +1182,7 @@ def _build_dependency_map(collections, existing_collections, b_temp_path, apis, 
 
 
 def _get_collection_info(dep_map, existing_collections, collection, requirement, source, b_temp_path, apis,
-                         validate_certs, force, parent=None, allow_pre_release=False):
+                         validate_certs, force, parent=None, allow_pre_release=False, fallback_pre_build=False):
     dep_msg = ""
     if parent:
         dep_msg = " - as dependency of %s" % parent
@@ -1075,6 +1202,15 @@ def _get_collection_info(dep_map, existing_collections, collection, requirement,
 
     if b_tar_path:
         req = CollectionRequirement.from_tar(b_tar_path, force, parent=parent)
+
+        collection_name = to_text(req)
+        if collection_name in dep_map:
+            collection_info = dep_map[collection_name]
+            collection_info.add_requirement(None, req.latest_version)
+        else:
+            collection_info = req
+    elif fallback_pre_build and os.path.isdir(to_bytes(collection, errors='surrogate_or_strict')):
+        req = CollectionRequirement.from_path(to_bytes(collection, errors='surrogate_or_strict'), force, fallback_pre_build=True)
 
         collection_name = to_text(req)
         if collection_name in dep_map:
