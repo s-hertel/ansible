@@ -330,12 +330,24 @@ access the collection:
 
    ansible-galaxy collection install my_namespace-my_collection-1.0.0.tar.gz -p ./collections
 
-
 You should use one of the values configured in :ref:`COLLECTIONS_PATHS` for your path. This is also where Ansible itself will
 expect to find collections when attempting to use them. If you don't specify a path value, ``ansible-galaxy collection install``
 installs the collection in the first path defined in :ref:`COLLECTIONS_PATHS`, which by default is ``~/.ansible/collections``.
 
 Next, try using the local collection inside a playbook. For examples and more details see :ref:`Using collections <using_collections>`
+
+.. _collections_scm_install:
+
+Installing collections in a git repository
+------------------------------------------
+
+You can also test a version of your collection in development by installing it from a git repository.
+
+.. code-block:: bash
+
+   ansible-galaxy collection install git+https://github.com/org/repo.git,devel
+
+.. include:: ../shared_snippets/installing_collections_git_repo.txt
 
 .. _publishing_collections:
 

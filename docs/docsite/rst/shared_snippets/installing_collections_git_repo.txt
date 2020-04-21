@@ -1,0 +1,77 @@
+When developing collections, it may be helpful to test development by installing collections from git repositories by using the galaxy.yml metadata. You can do this by providing a URI to a git repository instead of a collection name. The URI should be prefixed with git+ (or with git@ when using a private github repository with ssh authentication).
+
+Installing a collection from a git repository
+---------------------------------------------
+
+You can install a collection in a git repository by providing the URI to the repository instead of a collection name or path to a tar.gz. The URI should be prefixed with git+ (or with git@ to use a private repository with ssh authentication) and can be limited to a specific commit, branch, or tag, by appending a comma separated version.
+
+.. code-block:: bash
+
+   # Install a collection in a repository using the latest commit on the branch 'devel'
+   ansible-galaxy collection install git+https://github.com/organization/repo_name.git,devel
+
+   # Install a collection from a private github repository
+   ansible-galaxy collection install git@github.com:organization/repo_name.git
+
+   # Install a collection from a local git repository
+   ansible-galaxy collection install git+file:///home/user/path/to/repo/.git
+
+In a requirements.yml file, you can also use the 'scm' and 'version' keys in addition to using the scm+repo,version syntax for the collection name.
+
+.. code-block:: yaml
+
+   collections:
+     - name: https://github.com/organization/repo_name.git
+       scm: git
+       version: devel
+
+Default locations for collections in repositories
+-------------------------------------------------
+
+There are two simple repository structures that are handled by default. The first, is a repository which contains a galaxy.yml in the top level directory. If a repository contains a top level galaxy.yml file, it is used as the collection metadata.
+
+.. code-block:: text
+
+   ├── galaxy.yml
+   ├── plugins
+   │   ├── lookup
+   │   ├── modules
+   │   └── module_utils
+   └─── README.md
+
+The second layout, is a repository which contains directories, each with their own collection. If there is no galaxy.yml found at the top level of the repository, all top level directories which contain a galaxy.yml are installed.
+
+.. code-block:: text
+
+   directory
+   ├── docs
+   ├── galaxy.yml
+   ├── plugins
+   │   ├── inventory
+   │   └── modules
+   └── roles
+
+Specifying the location to search for collections
+-------------------------------------------------
+
+If you have a repository with a different shape for organizational purposes or only want to install a subset of collections, you can add a fragment to the end of your URI (before the optional comma-separated version) to indicate which path ansible-galaxy should inspect for galaxy.yml file(s).
+
+.. code-block:: text
+
+   namespace
+   └── name
+       ├── docs
+       ├── galaxy.yml
+       ├── plugins
+       │   ├── README.md
+       │   └── modules
+       ├── README.md
+       └── roles
+
+.. code-block:: bash
+
+   # Install all collections in a particular namespace
+   ansible-galaxy collection install git+https://github.com/organization/repo_name.git#/namespace/
+
+   # Install a specific collection using a specific commit version
+   ansible-galaxy collection install git+https://github.com/organization/repo_name.git#/namespace/name/,7b60ddc245bc416b72d8ea6ed7b799885110f5e5
