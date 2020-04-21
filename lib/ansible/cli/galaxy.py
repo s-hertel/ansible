@@ -692,7 +692,8 @@ class GalaxyCLI(CLI):
             for collection_input in collections:
                 requirement = None
                 if os.path.isfile(to_bytes(collection_input, errors='surrogate_or_strict')) or \
-                        urlparse(collection_input).scheme.lower() in ['http', 'https']:
+                        urlparse(collection_input).scheme.lower() in ['http', 'https'] or \
+                        collection_input.startswith('git+'):
                     # Arg is a file path or URL to a collection
                     name = collection_input
                 else:
