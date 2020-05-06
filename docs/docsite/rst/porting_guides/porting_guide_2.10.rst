@@ -30,8 +30,8 @@ Playbook
 Command Line
 ============
 
-No notable changes
-
+* ``ansible-galaxy`` now always joins the collections path with 'ansible_collections'. This means that if a collection is installed to a path (either via the ``ANSIBLE_COLLECTIONS_PATHS`` environment variable or the ``collections_paths`` ansible.cfg setting in the ``[defaults]`` entry) that ends with ``ansible_collections``, the setting does not need to change in order to use the collection.
+    Example: `ANSIBLE_COLLECTIONS_PATHS=/path/to/ansible_collections/ ansible-galaxy` installs collections to the same place that `ANSIBLE_COLLECTIONS_PATHS=/path/to/ansible_collections/ ansible-playbook` looks for them.
 
 Deprecated
 ==========
