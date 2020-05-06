@@ -7,7 +7,7 @@
 - name: install simple collection with implicit path - {{ test_name }}
   command: ansible-galaxy collection install namespace1.name1 -s '{{ test_server }}'
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/'
   register: install_normal
 
 - name: get installed files of install simple collection with implicit path - {{ test_name }}
@@ -34,7 +34,7 @@
 - name: install existing without --force - {{ test_name }}
   command: ansible-galaxy collection install namespace1.name1 -s '{{ test_server }}'
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}'
   register: install_existing_no_force
 
 - name: assert install existing without --force - {{ test_name }}
@@ -45,7 +45,7 @@
 - name: install existing with --force - {{ test_name }}
   command: ansible-galaxy collection install namespace1.name1 -s '{{ test_server }}' --force
   environment:
-    ANSIBLE_COLLECTIONS_PATH: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATH: '{{ galaxy_dir }}'
   register: install_existing_force
 
 - name: assert install existing with --force - {{ test_name }}
@@ -59,7 +59,7 @@
     state: absent
 
 - name: install pre-release as explicit version to custom dir - {{ test_name }}
-  command: ansible-galaxy collection install 'namespace1.name1:1.1.0-beta.1' -s '{{ test_server }}' -p '{{ galaxy_dir }}/ansible_collections'
+  command: ansible-galaxy collection install 'namespace1.name1:1.1.0-beta.1' -s '{{ test_server }}' -p '{{ galaxy_dir }}'
   register: install_prerelease
 
 - name: get result of install pre-release as explicit version to custom dir - {{ test_name }}
@@ -79,7 +79,7 @@
     state: absent
 
 - name: install pre-release version with --pre to custom dir - {{ test_name }}
-  command: ansible-galaxy collection install --pre 'namespace1.name1' -s '{{ test_server }}' -p '{{ galaxy_dir }}/ansible_collections'
+  command: ansible-galaxy collection install --pre 'namespace1.name1' -s '{{ test_server }}' -p '{{ galaxy_dir }}'
   register: install_prerelease
 
 - name: get result of install pre-release version with --pre to custom dir - {{ test_name }}
@@ -98,7 +98,7 @@
   args:
     chdir: '{{ galaxy_dir }}/ansible_collections'
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}'
     ANSIBLE_CONFIG: '{{ galaxy_dir }}/ansible.cfg'
   register: install_multiple_with_dep
 
@@ -140,7 +140,7 @@
   command: ansible-galaxy collection install '{{ galaxy_dir }}/namespace3.tar.gz'
   register: install_tarball
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/'
 
 - name: get result of install collection from a tarball - {{ test_name }}
   slurp:
@@ -161,7 +161,7 @@
   register: fail_bad_tar
   failed_when: fail_bad_tar.rc != 1 and "Cannot extract tar entry '../../outside.sh' as it will be placed outside the collection directory" not in fail_bad_tar.stderr
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}'
 
 - name: get result of failed collection install - {{ test_name }}
   stat:
@@ -177,7 +177,7 @@
   command: ansible-galaxy collection install '{{ test_server }}custom/collections/namespace4-name-1.0.0.tar.gz'
   register: install_uri
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}'
 
 - name: get result of install collection from a URI - {{ test_name }}
   slurp:
@@ -201,7 +201,7 @@
   command: ansible-galaxy collection install namespace5.name -s '{{ test_server }}'
   register: install_empty_server_list
   environment:
-    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}/ansible_collections'
+    ANSIBLE_COLLECTIONS_PATHS: '{{ galaxy_dir }}'
     ANSIBLE_GALAXY_SERVER_LIST: ''
 
 - name: get result of a collection with an empty server list - {{ test_name }}
