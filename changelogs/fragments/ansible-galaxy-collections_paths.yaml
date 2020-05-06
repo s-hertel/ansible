@@ -1,0 +1,2 @@
+bugfixes:
+  - ansible-galaxy - Always join the collections path with 'ansible_collections' for predictable behavior between installing and using collections.
