@@ -81,7 +81,7 @@ class IncludeRole(TaskInclude):
 
         # build role
         actual_role = Role.load(ri, myplay, parent_role=self._parent_role, from_files=self._from_files,
-                                from_include=True, validate=self.rolespec_validate)
+                                from_include=True, validate=self.rolespec_validate, public=self.public)
         actual_role._metadata.allow_duplicates = self.allow_duplicates
 
         if self.statically_loaded or self.public:
