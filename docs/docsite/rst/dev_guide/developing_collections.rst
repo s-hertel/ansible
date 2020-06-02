@@ -273,8 +273,8 @@ The ``runtime.yml`` file supports the top level keys:
   .. code:: yaml
 
      action_groups_redirection:
-       group_name:
-         redirect: common_group
+       original_group_name:
+         redirect: namespace.collection.new_group_name
 
   This allows content in different collections to share a common module_defaults ``group/`` entry. If a collection needs to move action plugins or modules to another collection, the original collection's ``action_groups_redirection`` metadata should be updated to specifiy the new fully qualified group names. This is important to keep playbooks that reference the original group name working.
 
