@@ -140,7 +140,7 @@ class TaskQueueManager:
 
         for callback_plugin in callback_loader.all(class_only=True):
             callback_type = getattr(callback_plugin, 'CALLBACK_TYPE', '')
-            callback_needs_whitelist = getattr(callback_plugin, 'CALLBACK_NEEDS_WHITELIST', False)
+            callback_needs_whitelist = getattr(callback_plugin, 'CALLBACK_NEEDS_ENABLED', getattr(callback_plugin, 'CALLBACK_NEEDS_WHITELIST', False))
             (callback_name, _) = os.path.splitext(os.path.basename(callback_plugin._original_path))
             if callback_type == 'stdout':
                 # we only allow one callback of type 'stdout' to be loaded,
@@ -151,7 +151,7 @@ class TaskQueueManager:
                 # special case for ansible cli option
                 pass
             elif not self._run_additional_callbacks or (callback_needs_whitelist and (
-                    C.DEFAULT_CALLBACK_WHITELIST is None or callback_name not in C.DEFAULT_CALLBACK_WHITELIST)):
+                    C.DEFAULT_CALLBACK_ENABLED is None or callback_name not in C.DEFAULT_CALLBACK_ENABLED)):
                 # 2.x plugins shipped with ansible should require whitelisting, older or non shipped should load automatically
                 continue
 
@@ -159,7 +159,7 @@ class TaskQueueManager:
             callback_obj.set_options()
             self._callback_plugins.append(callback_obj)
 
-        for callback_plugin_name in (c for c in C.DEFAULT_CALLBACK_WHITELIST if AnsibleCollectionRef.is_valid_fqcr(c)):
+        for callback_plugin_name in (c for c in C.DEFAULT_CALLBACK_ENABLED if AnsibleCollectionRef.is_valid_fqcr(c)):
             # TODO: need to extend/duplicate the stdout callback check here (and possible move this ahead of the old way
             callback_obj = callback_loader.get(callback_plugin_name)
             if callback_obj:

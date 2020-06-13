@@ -33,7 +33,7 @@ class CallbackModule(CallbackBase):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = 'aggregate'
     CALLBACK_NAME = 'tree'
-    CALLBACK_NEEDS_WHITELIST = True
+    CALLBACK_NEEDS_ENABLED = True
 
     def __init__(self):
         super(CallbackModule, self).__init__()
