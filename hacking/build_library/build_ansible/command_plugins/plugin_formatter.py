@@ -185,7 +185,7 @@ def get_plugin_info(module_dir, limit_to=None, verbose=False):
 
         # Do not list blacklisted modules
         module = os.path.splitext(os.path.basename(module_path))[0]
-        if module in plugin_docs.BLACKLIST['MODULE'] or module == 'base':
+        if module in plugin_docs.REJECTLIST['MODULE'] or module == 'base':
             continue
 
         # If requested, limit module documentation building only to passed-in
