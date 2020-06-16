@@ -701,13 +701,11 @@ def validate_collection_path(collection_path):
     """Ensure a given path ends with 'ansible_collections'
 
     :param collection_path: The path that should end in 'ansible_collections'
-    :return: collection_path ending in 'ansible_collections' if it does not already.
+    :return: collection_path ending in 'ansible_collections'
     """
 
-    if os.path.split(collection_path)[1] != 'ansible_collections':
-        return os.path.join(collection_path, 'ansible_collections')
-
-    return collection_path
+    # Always join 'ansible_collections' for parity between ansible-galaxy and ansible
+    return os.path.join(collection_path, 'ansible_collections')
 
 
 def verify_collections(collections, search_paths, apis, validate_certs, ignore_errors, allow_pre_release=False):
