@@ -7,4 +7,4 @@ action_groups:
     - ping
 action_groups_routing:
   test_group:
-    redirect: namespace.collection2.another_group
+    redirect: namespace1.collection2.another_group

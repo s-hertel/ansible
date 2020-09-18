@@ -7,4 +7,4 @@ action_groups:
     - ping
 action_groups_routing:
   another_group:
-    redirect: namespace.collection3.resolved_group
+    redirect: namespace1.collection3.resolved_group
