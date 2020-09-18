@@ -9676,3 +9676,9 @@ import_redirection:
     redirect: ansible.module_utils
   ansible_collections.ansible.builtin.plugins:
     redirect: ansible.plugins
+action_groups:
+  # test entry
+  test_group:
+    - ping
+action_groups_routing: {}
+  # TODO: move hardcoded collections in get_action_args_with_defaults to here

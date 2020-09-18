@@ -1353,6 +1353,7 @@ def modify_module(module_name, module_path, module_args, templar, task_vars=None
 
 def get_action_args_with_defaults(action, args, defaults, templar, redirected_names=None):
     group_collection_map = {
+        'test_group': ['ansible.builtin'],
         'acme': ['community.crypto'],
         'aws': ['amazon.aws', 'community.aws'],
         'azure': ['azure.azcollection'],

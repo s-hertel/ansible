@@ -1,0 +1,96 @@
+---
+- name: test last action group redirect wins with FQCN groups
+  hosts: localhost
+  gather_facts: no
+  module_defaults:
+    group/test_group:
+      data: "builtin"
+    group/namespace1.collection1.test_group:
+      data: "initial"
+    group/namespace1.collection2.another_group:
+      data: "redirected"
+    group/namespace1.collection3.resolved_group:
+      data: "resolved"
+
+  tasks:
+  - ping:
+    register: result
+    failed_when: "result.ping != 'builtin'"
+
+  - ansible.builtin.ping:
+    register: result
+    failed_when: "result.ping != 'builtin'"
+
+  - namespace1.collection1.ping:
+    register: result
+    failed_when: "result.ping != 'resolved'"
+
+  - namespace1.collection2.ping:
+    register: result
+    failed_when: "result.ping != 'resolved'"
+
+  - namespace1.collection3.ping:
+    register: result
+    failed_when: "result.ping != 'resolved'"
+
+- name: test last action group redirect wins with collections list + module_defaults
+  hosts: localhost
+  gather_facts: no
+  collections:
+    - namespace1.collection1
+    - namespace1.collection2
+    - namespace1.collection3
+  module_defaults:
+    group/test_group:
+      data: "initial"
+    group/another_group:
+      data: "redirected"
+    group/resolved_group:
+      data: "resolved"
+
+  tasks:
+  - ansible.builtin.ping:
+    register: result
+    failed_when: "result.ping != 'pong'"
+
+  - ping:
+    register: result
+    failed_when: "result.ping != 'resolved'"
+
+- name: test middle redirect precedence
+  hosts: localhost
+  gather_facts: no
+  module_defaults:
+    group/namespace1.collection1.test_group:
+      data: "initial"
+    group/namespace1.collection2.another_group:
+      data: "redirected"
+  tasks:
+  - namespace1.collection1.ping:
+    register: result
+    failed_when: "result.ping != 'redirected'"
+
+- name: test module_defaults and collections defined at different layers
+  hosts: localhost
+  gather_facts: no
+  module_defaults:
+    test_group:
+      data: "builtin"
+  tasks:
+    - collections:
+        - namespace1.collection1
+      module_defaults:
+        test_group:
+          data: "initial"
+      block:
+        - ping:
+          register: result
+          failed_when: "result.ping != 'initial'"
+
+        - namespace1.collection1.ping:
+          register: result
+          failed_when: "result.ping != 'initial'"
+
+        - ansible.builtin.ping:
+          register: result
+          failed_when: "result.ping != 'builtin'"

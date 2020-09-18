@@ -1,0 +1,10 @@
+plugin_routing:
+  modules:
+    ping:
+      redirect: namespace1.collection3.ping
+action_groups:
+  another_group:
+    - ping
+action_groups_routing:
+  another_group:
+    redirect: namespace.collection3.resolved_group
