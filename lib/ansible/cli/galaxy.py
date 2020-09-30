@@ -28,6 +28,7 @@ from ansible.galaxy.collection import (
     find_existing_collections,
     install_collections,
     publish_collection,
+    remove_collections,
     validate_collection_name,
     validate_collection_path,
     verify_collections
@@ -174,6 +175,7 @@ class GalaxyCLI(CLI):
         self.add_build_options(collection_parser, parents=[common, force])
         self.add_publish_options(collection_parser, parents=[common])
         self.add_install_options(collection_parser, parents=[common, force])
+        self.add_remove_options(collection_parser, parents=[common, collections_path])
         self.add_list_options(collection_parser, parents=[common, collections_path])
         self.add_verify_options(collection_parser, parents=[common, collections_path])
 
@@ -239,10 +241,24 @@ class GalaxyCLI(CLI):
                                           "'apb' and 'network'.")
 
     def add_remove_options(self, parser, parents=None):
-        remove_parser = parser.add_parser('remove', parents=parents, help='Delete roles from roles_path.')
-        remove_parser.set_defaults(func=self.execute_remove)
+        if parser.metavar == 'COLLECTION_ACTION':
+            remove_parser = parser.add_parser('remove', parents=parents, help='Delete collections installed in the collections path')
+            remove_parser.add_argument('args', metavar='collection_name', nargs='*', help='The collection(s) name or '
+                                       'path/url to a tar.gz collection artifact. This is mutually exclusive with --requirements-file.')
+            remove_parser.add_argument('-r', '--requirements-file', dest='requirements',
+                                       help='A file containing a list of collections to be removed.')
+            remove_parser.add_argument('-n', '--no-deps', dest='no_deps', action='store_true', default=False,
+                                       help="Skip dependencies of the collection(s) to remove")
+            remove_parser.add_argument('collection', help='Collection', nargs='?', metavar='collection')
+            remove_parser.add_argument('--pre', dest='allow_pre_release', action='store_true',
+                                       help='Include pre-release versions. Semantic versioning pre-releases are ignored by default')
 
-        remove_parser.add_argument('args', help='Role(s)', metavar='role', nargs='+')
+        else:
+            remove_parser = parser.add_parser('remove', parents=parents, help='Delete roles from roles_path.')
+            remove_parser.add_argument('args', help='Role(s)', metavar='role', nargs='+')
+            remove_parser.add_argument('role', help='Role', nargs='?', metavar='role')
+
+        remove_parser.set_defaults(func=self.execute_remove)
 
     def add_delete_options(self, parser, parents=None):
         delete_parser = parser.add_parser('delete', parents=parents,
@@ -1187,6 +1203,12 @@ class GalaxyCLI(CLI):
         return 0
 
     def execute_remove(self):
+        if context.CLIARGS['type'] == 'role':
+            self.execute_remove_role()
+        elif context.CLIARGS['type'] == 'collection':
+            self.execute_remove_collection()
+
+    def execute_remove_role(self):
         """
         removes the list of roles passed as arguments from the local system.
         """
@@ -1205,6 +1227,19 @@ class GalaxyCLI(CLI):
                 raise AnsibleError("Failed to remove role %s: %s" % (role_name, to_native(e)))
 
         return 0
+
+    def execute_remove_collection(self):
+        collections = context.CLIARGS['args']
+        search_paths = context.CLIARGS['collections_path']
+        requirements_file = context.CLIARGS['requirements']
+        no_deps = context.CLIARGS['no_deps']
+        ignore_certs = context.CLIARGS['ignore_certs']
+        allow_pre_release = context.CLIARGS['allow_pre_release']
+
+        requirements = self._require_one_of_collections_requirements(collections, requirements_file)['collections']
+        resolved_paths = [validate_collection_path(GalaxyCLI._resolve_path(path)) for path in search_paths]
+        remove_collections(requirements, resolved_paths, no_deps, self.api_servers, (not ignore_certs), allow_pre_release)
+
 
     def execute_list(self):
         """

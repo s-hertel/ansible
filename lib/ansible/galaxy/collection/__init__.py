@@ -221,6 +221,12 @@ class CollectionRequirement:
 
         self.versions = new_versions
 
+    def remove(self):
+        if self.b_path:
+            display.vvvv("Removing '%s' from '%s'" % (to_text(self), to_text(self.b_path, errors='surrogate_or_strict')))
+            shutil.rmtree(self.b_path)
+            display.display('%s (%s) was removed successfully' % (to_text(self), self.latest_version))
+
     def download(self, b_path):
         download_url = self._metadata.download_url
         artifact_hash = self._metadata.artifact_sha256
@@ -586,6 +592,23 @@ def build_collection(collection_path, output_path, force):
     return collection_output
 
 
+def remove_collections(collections, search_paths, no_deps, apis, validate_certs, allow_pre_release):
+    for install_path in search_paths:
+        existing_collections = find_existing_collections(install_path, fallback_metadata=True)
+
+        with _tempdir() as b_temp_path:
+            display.display("Process remove dependency map")
+            with _display_progress():
+                dependency_map = _build_dependency_map(collections, existing_collections, b_temp_path, apis,
+                                                       validate_certs, False, False, no_deps,
+                                                       allow_pre_release=allow_pre_release)
+
+            display.display("Starting collection remove process")
+            with _display_progress():
+                for collection in dependency_map.values():
+                    collection.remove()
+
+
 def download_collections(collections, output_path, apis, validate_certs, no_deps, allow_pre_release):
     """Download Ansible collections as their tarball from a Galaxy server to the path specified and creates a requirements
     file of the downloaded requirements to be used for an install.
@@ -617,7 +640,7 @@ def download_collections(collections, output_path, apis, validate_certs, no_deps
                 if requirement.api is None and requirement.b_path and os.path.isfile(requirement.b_path):
                     shutil.copy(requirement.b_path, to_bytes(dest_path, errors='surrogate_or_strict'))
                 elif requirement.api is None and requirement.b_path:
-                    temp_path = to_text(b_temp_path, errors='surrogate_or_string')
+                    temp_path = to_text(b_temp_path, errors='surrogate_or_strict')
                     temp_download_path = build_collection(requirement.b_path, temp_path, True)
                     shutil.move(to_bytes(temp_download_path, errors='surrogate_or_strict'),
                                 to_bytes(dest_path, errors='surrogate_or_strict'))
