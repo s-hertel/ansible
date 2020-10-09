@@ -217,6 +217,15 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         elif not isinstance(self._default_vars, dict):
             raise AnsibleParserError("The defaults/main.yml file for role '%s' must contain a dictionary of variables" % self._role_name)
 
+        self._arg_specs = {}
+        for ext in ['.yml', '.yaml', '.json']:
+            arg_spec_file = os.path.join(self._role_path, 'meta', 'argument_specs' + ext)
+            if self._loader.path_exists(arg_spec_file) and self._loader.is_file(arg_spec_file):
+                self._arg_specs = self._loader.load_from_file(arg_spec_file)
+                break
+        if not isinstance(self._arg_specs, dict):
+            raise AnsibleParserError("The meta/argument_specs.yml file for role '%s' must contain a dictionary" % self._role_name)
+
         # load the role's other files, if they exist
         metadata = self._load_role_yaml('meta')
         if metadata:
@@ -251,6 +260,10 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
             if 'ansible.builtin' not in self.collections and 'ansible.legacy' not in self.collections:
                 self.collections.append(default_append_collection)
 
+        # TODO: implement opt-out for user
+        task_ds = [{'action': 'validate_role_arguments', 'args': {'name': self.get_name()}}]
+        validator_block = load_list_of_blocks(task_ds, play=self._play, role=self, loader=self._loader, variable_manager=self._variable_manager)[0]
+
         task_data = self._load_role_yaml('tasks', main=self._from_files.get('tasks'))
         if task_data:
             try:
@@ -258,6 +271,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
             except AssertionError as e:
                 raise AnsibleParserError("The tasks/main.yml file for role '%s' must contain a list of tasks" % self._role_name,
                                          obj=task_data, orig_exc=e)
+        self._task_blocks.insert(0, validator_block)
 
         handler_data = self._load_role_yaml('handlers', main=self._from_files.get('handlers'))
         if handler_data:
@@ -333,6 +347,21 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
             for parent in dep_chain:
                 default_vars = combine_vars(default_vars, parent._default_vars)
         default_vars = combine_vars(default_vars, self._default_vars)
+
+        # Merge defaults defined in the arg spec into default_vars? Or should this just validate the defaults == arg spec defaults and error if not?
+        # Should `default: omit` be an option? Roles that handle undefined options but not None would need porting.
+        if self._arg_specs:
+            entry_point = self._from_files.get('tasks', 'main')
+            for name, spec in self._arg_specs.get(entry_point, {}).get('options', {}).items():
+                if name not in default_vars:
+                    # FIXME: suboptions not handled at all yet, consolidate with AnsibleModule suboption resolver
+                    default_vars[name] = spec.get('default')
+                elif default_vars[name] != spec.get('default'):
+                    msg = "The {0} role argument {1} is documented as having the default value of {2}, ".format(self.get_name(), name, spec.get('default'))
+                    msg += "but the default value {0} was found".format(default_vars[name])
+                    raise AnsibleError(msg)
+            # What about role vars or defaults that are not documented in the arg spec, but an arg spec has been defined? Just ignored for now
+
         return default_vars
 
     def get_inherited_vars(self, dep_chain=None):
