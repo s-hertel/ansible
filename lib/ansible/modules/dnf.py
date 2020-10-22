@@ -313,8 +313,10 @@ EXAMPLES = '''
 '''
 
 import os
+import random
 import re
 import sys
+from time import sleep
 
 try:
     import dnf
@@ -335,6 +337,18 @@ from distutils.version import LooseVersion
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.yumdnf import YumDnf, yumdnf_argument_spec
 
+
+def jittered_retry(f, retries=10, delay=2, max_delay=40):
+    def retry_f(*args, **kwargs):
+        for retry in range(0, retries):
+            delay = random.randint(1, min(max_delay, delay * 2 ** retry))
+            try:
+                return f(*args, **kwargs)
+            except dnf.exceptions.RepoError:
+                sleep(delay)
+            except dnf.exceptions.DownloadError:
+                sleep(delay)
+    return retry_f
 
 class DnfModule(YumDnf):
     """
@@ -656,14 +670,14 @@ class DnfModule(YumDnf):
         try:
             if self.update_cache:
                 try:
-                    base.update_cache()
+                    jittered_retry(base.update_cache)()
                 except dnf.exceptions.RepoError as e:
                     self.module.fail_json(
                         msg="{0}".format(to_text(e)),
                         results=[],
                         rc=1
                     )
-            base.fill_sack(load_system_repo='auto')
+            jittered_retry(base.fill_sack)(load_system_repo='auto')
         except dnf.exceptions.RepoError as e:
             self.module.fail_json(
                 msg="{0}".format(to_text(e)),
@@ -1204,7 +1218,7 @@ class DnfModule(YumDnf):
                         dnf.util.ensure_dir(self.base.conf.destdir)
                         self.base.repos.all().pkgdir = self.base.conf.destdir
 
-                    self.base.download_packages(self.base.transaction.install_set)
+                    jittered_retry(self.base.download_packages)(self.base.transaction.install_set)
                 except dnf.exceptions.DownloadError as e:
                     self.module.fail_json(
                         msg="Failed to download packages: {0}".format(to_text(e)),
