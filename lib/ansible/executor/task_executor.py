@@ -18,7 +18,7 @@ import traceback
 from ansible import constants as C
 from ansible.errors import AnsibleError, AnsibleParserError, AnsibleUndefinedVariable, AnsibleConnectionFailure, AnsibleActionFail, AnsibleActionSkip
 from ansible.executor.task_result import TaskResult
-from ansible.executor.module_common import get_action_args_with_defaults
+from ansible.executor.module_common import get_action_args_with_defaults, _get_action_args_with_defaults
 from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.module_utils.six import iteritems, string_types, binary_type
 from ansible.module_utils.six.moves import xrange
@@ -534,9 +534,7 @@ class TaskExecutor:
         self._handler = self._get_action_handler(connection=self._connection, templar=templar)
 
         # Apply default params for action/module, if present
-        self._task.args = get_action_args_with_defaults(
-            self._task.action, self._task.args, self._task.module_defaults, templar, self._task._ansible_internal_redirect_list
-        )
+        self._task.args = _get_action_args_with_defaults(self._task, templar)
 
         # And filter out any fields which were set to default(omit), and got the omit token value
         omit_token = variables.get('omit')
@@ -988,7 +986,7 @@ class TaskExecutor:
         # let action plugin override module, fallback to 'normal' action plugin otherwise
         if self._shared_loader_obj.action_loader.has_plugin(self._task.action, collection_list=collections):
             handler_name = self._task.action
-        elif all((module_prefix in C.NETWORK_GROUP_MODULES, self._shared_loader_obj.action_loader.has_plugin(network_action, collection_list=collections))):
+        elif module_prefix in C.NETWORK_GROUP_MODULES and self._shared_loader_obj.action_loader.has_plugin(network_action, collection_list=collections):
             handler_name = network_action
         else:
             # use ansible.legacy.normal to allow (historic) local action_plugins/ override without collections search

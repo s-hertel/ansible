@@ -524,7 +524,7 @@ class _AnsibleCollectionPkgLoader(_AnsibleCollectionPkgLoaderBase):
         try:
             if raw_routing:
                 routing_dict = _meta_yml_to_dict(raw_routing, (collection_name, 'runtime.yml'))
-                module._collection_meta = self._canonicalize_meta(routing_dict)
+                module._collection_meta = self._canonicalize_meta(routing_dict, collection_name)
         except Exception as ex:
             raise ValueError('error parsing collection metadata: {0}'.format(to_native(ex)))
 
@@ -532,7 +532,7 @@ class _AnsibleCollectionPkgLoader(_AnsibleCollectionPkgLoaderBase):
 
         return module
 
-    def _canonicalize_meta(self, meta_dict):
+    def _canonicalize_meta(self, meta_dict, collection_name):
         # TODO: rewrite import keys and all redirect targets that start with .. (current namespace) and . (current collection)
         # OR we could do it all on the fly?
         # if not meta_dict:
@@ -548,16 +548,55 @@ class _AnsibleCollectionPkgLoader(_AnsibleCollectionPkgLoaderBase):
         #         if redirect.startswith('..'):
         #             redirect =  redirect[2:]
 
-        action_groups = meta_dict.pop('action_groups', {})
-        meta_dict['action_groups'] = {}
-        for group_name in action_groups:
-            for action_name in action_groups[group_name]:
-                if action_name in meta_dict['action_groups']:
-                    meta_dict['action_groups'][action_name].append(group_name)
-                else:
-                    meta_dict['action_groups'][action_name] = [group_name]
+        meta_dict['action_groups'] = self._process_action_groups(collection_name, meta_dict.pop('action_groups', {}))
 
         return meta_dict
+
+    def _process_action_groups(self, collection_name, action_groups, resolved_groups=None):
+        if resolved_groups is None:
+            resolved_groups = {}
+
+        for group in action_groups:
+            if len(group.split('.')) != 3 or '.'.join(group.split('.')[0:2]) != collection_name:
+                fq_group = '%s.%s' % (collection_name, group)
+            else:
+                fq_group = group
+
+            if fq_group in resolved_groups:
+                continue
+
+            for action in action_groups[group]:
+                if isinstance(action, dict):
+                    include_group = action.get('include')
+                    if not include_group or not isinstance(include_group, string_types):
+                        continue
+                    if len(include_group.split('.')) != 3:
+                        fq_include_group = '%s.%s' % (collection_name, include_group)
+                    else:
+                        fq_include_group = include_group
+
+                    include_collection = '.'.join(fq_include_group.split('.')[0:2])
+
+                    try:
+                        include_groups = _get_collection_metadata(include_collection).get('action_groups', {})
+                    except ValueError as e:
+                        # collection not installed
+                        continue
+
+                    resolved_groups = self._process_action_groups(include_collection, include_groups, resolved_groups)
+                    resolved_groups[fq_group] = resolved_groups.get(fq_group, []) + resolved_groups.get(fq_include_group, [])
+                else:
+                    if len(action.split('.')) != 3:
+                        fq_action = '%s.%s' % (collection_name, action)
+                    else:
+                        fq_action = action
+
+                    if fq_group not in resolved_groups:
+                        resolved_groups[fq_group] = []
+
+                    resolved_groups[fq_group].append(fq_action)
+
+        return resolved_groups
 
 
 # loads everything under a collection, including handling redirections defined by the collection

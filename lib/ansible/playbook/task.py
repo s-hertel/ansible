@@ -37,6 +37,7 @@ from ansible.playbook.loop_control import LoopControl
 from ansible.playbook.role import Role
 from ansible.playbook.taggable import Taggable
 from ansible.utils.collection_loader import AnsibleCollectionConfig
+from ansible.utils.collection_loader._collection_finder import _get_collection_metadata
 from ansible.utils.display import Display
 from ansible.utils.sentinel import Sentinel
 
@@ -98,6 +99,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
         self._role = role
         self._parent = None
         self.implicit = False
+        self.action_groups = {}
 
         if task_include:
             self._parent = task_include
@@ -355,6 +357,34 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
 
         return env
 
+    def _post_validate_module_defaults(self, attr, value, templar):
+        module_defaults = []
+        value = templar.template(value)
+
+        if isinstance(value, dict):
+            value = [value]
+        if isinstance(value, list):
+            for default in value:
+                validated_default = {}
+                for entry in default:
+                    if entry.startswith('group/'):
+                        if len(entry.split('.')) != 3:
+                            group_name = '%s.%s' % ('ansible.builtin', entry.split('group/')[-1])
+                        else:
+                            group_name = entry.split('group/')[-1]
+
+                        group_collection = '.'.join(group_name.split('.')[0:2])
+                        self.action_groups.update(
+                            _get_collection_metadata(group_collection).get('action_groups', {})
+                        )
+
+                        validated_default['group/%s' % group_name] = default[entry]
+                    else:
+                        validated_default[entry] = module_default[entry]
+                module_defaults.append(validated_default)
+
+        return module_defaults
+
     def _post_validate_changed_when(self, attr, value, templar):
         '''
         changed_when is evaluated after the execution of the task is complete,
@@ -413,6 +443,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
             new_me._role = self._role
 
         new_me.implicit = self.implicit
+        new_me.action_groups = self.action_groups
 
         return new_me
 
@@ -431,6 +462,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
                 data['_ansible_internal_redirect_list'] = self._ansible_internal_redirect_list[:]
 
             data['implicit'] = self.implicit
+            data['action_groups'] = self.action_groups
 
         return data
 
@@ -463,6 +495,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
         self._ansible_internal_redirect_list = data.get('_ansible_internal_redirect_list', [])
 
         self.implicit = data.get('implicit', False)
+        self.action_groups = data.get('action_groups', {})
 
         super(Task, self).deserialize(data)
 

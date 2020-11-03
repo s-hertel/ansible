@@ -1351,6 +1351,48 @@ def modify_module(module_name, module_path, module_args, templar, task_vars=None
     return (b_module_data, module_style, shebang)
 
 
+def _get_action_args_with_defaults(task, templar):
+    # FIXME: get_action_args_with_defaults
+
+    action = task.action
+    args = task.args
+    defaults = task.module_defaults
+    redirected_names = task._ansible_internal_redirect_list
+
+    tmp_args = {}
+    module_defaults = {}
+
+    # Merge latest defaults into dict, since they are a list of dicts
+    if isinstance(defaults, list):
+        for default in defaults:
+            module_defaults.update(default)
+
+    # if I actually have defaults, template and merge
+    if module_defaults:
+        module_defaults = templar.template(module_defaults)
+
+        # deal with configured group defaults first
+        for default in module_defaults:
+            if not default.startswith('group/'):
+                continue
+
+            group_name = default.split('group/')[-1]
+            action_group = task.action_groups[group_name]
+
+            if any(name for name in redirected_names if name in action_group):
+                tmp_args.update((module_defaults.get('group/%s' % group_name) or {}).copy())
+
+        # handle specific action defaults
+        for action in redirected_names:
+            if action in module_defaults:
+                tmp_args.update(module_defaults[action].copy())
+
+    # direct args override all
+    tmp_args.update(args)
+
+    return tmp_args
+
+
 def get_action_args_with_defaults(action, args, defaults, templar, redirected_names=None):
     group_collection_map = {
         'acme': ['community.crypto'],
