@@ -374,9 +374,9 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
                             group_name = entry.split('group/')[-1]
 
                         group_collection = '.'.join(group_name.split('.')[0:2])
-                        self.action_groups.update(
-                            _get_collection_metadata(group_collection).get('action_groups', {})
-                        )
+
+                        unfiltered_action_groups = _get_collection_metadata(group_collection).get('action_groups', {})
+                        self.action_groups.update(self._resolve_actions(group_collection, unfiltered_action_groups, group=group_name))
 
                         validated_default['group/%s' % group_name] = default[entry]
                     else:
@@ -384,6 +384,50 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
                 module_defaults.append(validated_default)
 
         return module_defaults
+
+    def _resolve_actions(self, collection_name, action_groups, group=None, resolved_groups=None):
+        if resolved_groups is None:
+            resolved_groups = {}
+
+        if group:
+            groups = [group]
+        else:
+            groups = list(action_groups.keys())
+
+        for group in groups:
+            for action in action_groups[group]:
+                if isinstance(action, dict):
+                    include_group = action.get('include')
+                    if not include_group or not isinstance(include_group, string_types):
+                        continue
+                    if len(include_group.split('.')) != 3:
+                        fq_include_group = '%s.%s' % (collection_name, include_group)
+                    else:
+                        fq_include_group = include_group
+
+                    include_collection = '.'.join(fq_include_group.split('.')[0:2])
+
+                    try:
+                        include_groups = _get_collection_metadata(include_collection).get('action_groups', {})
+                    except ValueError as e:
+                        # collection not installed
+                        continue
+
+                    resolved_groups = self._resolve_actions(collection_name=include_collection, action_groups=include_groups, resolved_groups=resolved_groups)
+                    resolved_groups[group] = resolved_groups.get(group, []) + resolved_groups.get(fq_include_group, [])
+                else:
+                    # FIXME
+                    if len(action.split('.')) != 3:
+                        fq_action = '%s.%s' % (collection_name, action)
+                    else:
+                        fq_action = action
+
+                    if group not in resolved_groups:
+                        resolved_groups[group] = []
+
+                    resolved_groups[group].append(fq_action)
+
+            return resolved_groups
 
     def _post_validate_changed_when(self, attr, value, templar):
         '''

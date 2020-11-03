@@ -565,36 +565,7 @@ class _AnsibleCollectionPkgLoader(_AnsibleCollectionPkgLoaderBase):
             if fq_group in resolved_groups:
                 continue
 
-            for action in action_groups[group]:
-                if isinstance(action, dict):
-                    include_group = action.get('include')
-                    if not include_group or not isinstance(include_group, string_types):
-                        continue
-                    if len(include_group.split('.')) != 3:
-                        fq_include_group = '%s.%s' % (collection_name, include_group)
-                    else:
-                        fq_include_group = include_group
-
-                    include_collection = '.'.join(fq_include_group.split('.')[0:2])
-
-                    try:
-                        include_groups = _get_collection_metadata(include_collection).get('action_groups', {})
-                    except ValueError as e:
-                        # collection not installed
-                        continue
-
-                    resolved_groups = self._process_action_groups(include_collection, include_groups, resolved_groups)
-                    resolved_groups[fq_group] = resolved_groups.get(fq_group, []) + resolved_groups.get(fq_include_group, [])
-                else:
-                    if len(action.split('.')) != 3:
-                        fq_action = '%s.%s' % (collection_name, action)
-                    else:
-                        fq_action = action
-
-                    if fq_group not in resolved_groups:
-                        resolved_groups[fq_group] = []
-
-                    resolved_groups[fq_group].append(fq_action)
+            resolved_groups[fq_group] = action_groups[group]
 
         return resolved_groups
 
