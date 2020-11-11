@@ -39,8 +39,7 @@ def get_plugin_vars(loader, plugin, path, entities):
     return data
 
 
-def get_vars_from_path(loader, path, entities, stage):
-
+def get_vars_from_path(loader, path, entities, stage, force=False):
     data = {}
 
     vars_plugin_list = list(vars_loader.all())
@@ -63,8 +62,9 @@ def get_vars_from_path(loader, path, entities, stage):
         # if a plugin-specific setting has not been provided, use the global setting
         # older/non shipped plugins that don't support the plugin-specific setting should also use the global setting
         use_global = (has_stage and plugin.get_option('stage') is None) or not has_stage
-
-        if use_global:
+        if force:
+            pass
+        elif use_global:
             if C.RUN_VARS_PLUGINS == 'demand' and stage == 'inventory':
                 continue
             elif C.RUN_VARS_PLUGINS == 'start' and stage == 'task':
@@ -77,7 +77,7 @@ def get_vars_from_path(loader, path, entities, stage):
     return data
 
 
-def get_vars_from_inventory_sources(loader, sources, entities, stage):
+def get_vars_from_inventory_sources(loader, sources, entities, stage, force=False):
 
     data = {}
     for path in sources:
@@ -90,6 +90,6 @@ def get_vars_from_inventory_sources(loader, sources, entities, stage):
             # always pass the directory of the inventory source file
             path = os.path.dirname(path)
 
-        data = combine_vars(data, get_vars_from_path(loader, path, entities, stage))
+        data = combine_vars(data, get_vars_from_path(loader, path, entities, stage, force))
 
     return data

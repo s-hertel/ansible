@@ -193,9 +193,9 @@ class InventoryCLI(CLI):
         res = group.get_vars()
 
         # Always load vars plugins
-        res = combine_vars(res, get_vars_from_inventory_sources(self.loader, self.inventory._sources, [group], 'all'))
+        res = combine_vars(res, get_vars_from_inventory_sources(self.loader, self.inventory._sources, [group], force=True))
         if context.CLIARGS['basedir']:
-            res = combine_vars(res, get_vars_from_path(self.loader, context.CLIARGS['basedir'], [group], 'all'))
+            res = combine_vars(res, get_vars_from_path(self.loader, context.CLIARGS['basedir'], [group], force=True))
 
         if group.priority != 1:
             res['ansible_group_priority'] = group.priority
@@ -209,12 +209,12 @@ class InventoryCLI(CLI):
             hostvars = host.get_vars()
 
             # Always load vars plugins
-            hostvars = combine_vars(hostvars, get_vars_from_inventory_sources(self.loader, self.inventory._sources, [host], 'all'))
+            hostvars = combine_vars(hostvars, get_vars_from_inventory_sources(self.loader, self.inventory._sources, [host], force=True))
             if context.CLIARGS['basedir']:
-                hostvars = combine_vars(hostvars, get_vars_from_path(self.loader, context.CLIARGS['basedir'], [host], 'all'))
+                hostvars = combine_vars(hostvars, get_vars_from_path(self.loader, context.CLIARGS['basedir'], [host], force=True))
         else:
             # get all vars flattened by host, but skip magic hostvars
-            hostvars = self.vm.get_vars(host=host, include_hostvars=False, stage='all')
+            hostvars = self.vm.get_vars(host=host, include_hostvars=False, force=True)
 
         return self._remove_internal(hostvars)
 
