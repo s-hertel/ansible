@@ -412,8 +412,8 @@ def install_collections(
         for coll in find_existing_collections(output_path, artifacts_manager)
     }
 
-    if force_deps:
-        breakpoint()
+    #if force_deps:
+    #    breakpoint()
 
     requested_requirements = set(
         chain.from_iterable(
@@ -474,7 +474,7 @@ def install_collections(
             allow_pre_release=allow_pre_release,
         )
 
-    breakpoint()
+    #breakpoint()
     with _display_progress("Starting collection install process"):
         for fqcn, concrete_coll_pin in dependency_map.items():
             if concrete_coll_pin.is_virtual:

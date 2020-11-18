@@ -100,8 +100,8 @@ def _is_http_url(tested_str):
 
 
 def _is_git_url(tested_str):
-    if isinstance(tested_str, bytes):
-        breakpoint()
+    #if isinstance(tested_str, bytes):
+    #    breakpoint()
     return tested_str.startswith(('git+', 'git@'))
 
 
