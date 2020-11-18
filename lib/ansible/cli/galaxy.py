@@ -624,6 +624,12 @@ class GalaxyCLI(CLI):
 
         else:
             # Newer format with a collections and/or roles key
+
+            if 'roles' in file_requirements and file_requirements['roles'] is None:
+                file_requirements['roles'] = []
+            if 'collections' in file_requirements and file_requirements['collections'] is None:
+                file_requirements['collections'] = []
+
             extra_keys = set(file_requirements.keys()).difference(set(['roles', 'collections']))
             if extra_keys:
                 raise AnsibleError("Expecting only 'roles' and/or 'collections' as base keys in the requirements "
