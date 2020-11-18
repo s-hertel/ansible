@@ -233,7 +233,7 @@ def build_collection(collection_path, output_path, force):
         ver=collection_meta['version'],
     )
     b_collection_output = os.path.join(
-        output_path,
+        to_bytes(output_path, errors='surrogate_or_strict'),
         to_bytes(artifact_tarball_file_name, errors='surrogate_or_strict'),
     )
 
