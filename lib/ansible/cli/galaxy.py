@@ -638,7 +638,7 @@ class GalaxyCLI(CLI):
                     else {'name': collection_req},
                     artifacts_manager,
                 )
-                for collection_req in file_requirements.get('collections', [])
+                for collection_req in file_requirements.get('collections') or []
             ]
 
         return requirements
