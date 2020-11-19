@@ -218,6 +218,14 @@ def build_collection(collection_path, output_path, force):
     :return: The path to the collection build artifact.
     """
     b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
+
+    b_galaxy_yml = os.path.join(b_collection_path, b'galaxy.yml')
+    b_galaxy_yaml = os.path.join(b_collection_path, b'galaxy.yaml')
+    if not (os.path.exists(b_galaxy_yml) or os.path.exists(b_galaxy_yaml)):
+        raise AnsibleError(
+            "The collection galaxy.yml path '{0}' does not exist.".format(to_text(b_galaxy_yml, errors='surrogate_or_strict'))
+        )
+
     collection_meta = _get_meta_from_src_dir(b_collection_path)
     collection_manifest = _build_manifest(**collection_meta)
     file_manifest = _build_files_manifest(
