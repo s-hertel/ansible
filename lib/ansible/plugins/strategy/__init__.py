@@ -727,6 +727,11 @@ class StrategyBase:
             if original_task.register:
                 host_list = self.get_task_hosts(iterator, original_host, original_task)
 
+                if original_task.delegate_to is not None:
+                    for delegate_host in self.get_delegated_hosts(result_item, original_task):
+                        if delegate_host not in host_list:
+                            host_list.append(delegate_host)
+
                 clean_copy = strip_internal_keys(module_response_deepcopy(task_result._result))
                 if 'invocation' in clean_copy:
                     del clean_copy['invocation']
