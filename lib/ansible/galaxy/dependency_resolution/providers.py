@@ -213,9 +213,6 @@ class CollectionDependencyProvider(AbstractProvider):
                   specifies as its dependencies.
         :rtype: list[Candidate]
         """
-        if not self._with_deps:
-            return []
-
         # FIXME: If there's several galaxy servers set, there may be a
         # FIXME: situation when the metadata of the same collection
         # FIXME: differs. So how do we resolve this case? Priority?
@@ -223,6 +220,17 @@ class CollectionDependencyProvider(AbstractProvider):
         # FIXME: any differences?
         # NOTE: The underlying implmentation currently uses first found
         req_map = self._api_proxy.get_collection_dependencies(candidate)
+
+        # NOTE: This guard expression MUST perform an early exit only
+        # NOTE: after the `get_collection_dependencies()` call because
+        # NOTE: internally it polulates the artifact URL of the candidate,
+        # NOTE: its SHA hash and the Galaxy API token. These are still
+        # NOTE: necessary with `--no-deps` because even with the disabled
+        # NOTE: dependency resolution the outer layer will still need to
+        # NOTE: know how to download and validate the artifact.
+        if not self._with_deps:
+            return []
+
         return [
             self._make_req_from_dict({'name': dep_name, 'version': dep_req})
             for dep_name, dep_req in req_map.items()
