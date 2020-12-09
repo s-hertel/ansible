@@ -309,7 +309,7 @@ class _ComputedReqKindsMixin:
         if req_type not in {'galaxy', 'subdirs'} and req_version == '*':
             req_version = art_mgr.get_direct_collection_version(tmp_inst_req)
 
-        assert req_name is None or not os.path.isdir(req_name)
+        assert req_name is not None or req_type in {'git', 'subdirs'}
         return cls(
             req_name, req_version,
             req_source, req_type,
