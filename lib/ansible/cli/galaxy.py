@@ -503,7 +503,7 @@ class GalaxyCLI(CLI):
             config_servers.append(GalaxyAPI(
                 self.galaxy, server_key,
                 priority=server_priority,
-                **server_options,
+                **server_options
             ))
 
         cmd_server = context.CLIARGS['api_server']
