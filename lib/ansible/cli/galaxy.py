@@ -518,7 +518,7 @@ class GalaxyCLI(CLI):
                 self.api_servers.append(GalaxyAPI(
                     self.galaxy, 'cmd_arg', cmd_server, token=cmd_token,
                     priority=len(config_servers) + 1,
-                    **galaxy_options,
+                    **galaxy_options
                 ))
         else:
             self.api_servers = config_servers
@@ -528,7 +528,7 @@ class GalaxyCLI(CLI):
             self.api_servers.append(GalaxyAPI(
                 self.galaxy, 'default', C.GALAXY_SERVER, token=cmd_token,
                 priority=0,
-                **galaxy_options,
+                **galaxy_options
             ))
 
         context.CLIARGS['func']()
