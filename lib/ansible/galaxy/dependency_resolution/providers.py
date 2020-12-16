@@ -155,18 +155,23 @@ class CollectionDependencyProvider(AbstractProvider):
                 for version, _none_src_server in coll_versions
             ]
 
+        candidates = {
+            candidate for candidate in (
+                Candidate(fqcn, version, src_server, 'galaxy')  # FIXME: type=galaxy?
+                for version, src_server in coll_versions
+            )
+            for requirement in requirements
+        }
+
         return sorted(
             {
-                candidate for candidate in (
-                    Candidate(fqcn, version, src_server, 'galaxy')  # FIXME: type=galaxy?
-                    for version, src_server in coll_versions
-                )
-                for requirement in requirements
-                if self.is_satisfied_by(requirement, candidate)
-                # and ( # FIXME
+                candidate for candidate in candidates
+                if all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
+                # FIXME
+                # if all(self.is_satisfied_by(requirement, candidate) and (
                 #     requirement.src is None or
                 #     requirement.src == candidate.src
-                # )
+                # ))
             },
             key=operator.attrgetter('ver', 'src'),
             reverse=True,  # prefer newer versions over older ones
