@@ -119,7 +119,7 @@ def mock_from_path(mocker):
     return _from_path
 
 
-def test_execute_list_collection_all(mocker, capsys, mock_collection_objects):
+def test_execute_list_collection_all(mocker, capsys, mock_collection_objects, tmp_path_factory):
     """Test listing all collections from multiple paths"""
 
     cliargs()
@@ -127,7 +127,8 @@ def test_execute_list_collection_all(mocker, capsys, mock_collection_objects):
     mocker.patch('os.path.exists', return_value=True)
     mocker.patch('os.path.isdir', return_value=True)
     gc = GalaxyCLI(['ansible-galaxy', 'collection', 'list'])
-    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager('./', validate_certs=False)
+    tmp_path = tmp_path_factory.mktemp('test-ÅÑŚÌβŁÈ Collections')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
     gc.execute_list_collection(artifacts_manager=concrete_artifact_cm)
 
     out, err = capsys.readouterr()
@@ -148,7 +149,7 @@ def test_execute_list_collection_all(mocker, capsys, mock_collection_objects):
     assert out_lines[11] == 'sandwiches.pbj 1.0.0  '
 
 
-def test_execute_list_collection_specific(mocker, capsys, mock_collection_objects, mock_from_path):
+def test_execute_list_collection_specific(mocker, capsys, mock_collection_objects, mock_from_path, tmp_path_factory):
     """Test listing a specific collection"""
 
     collection_name = 'sandwiches.ham'
@@ -161,7 +162,8 @@ def test_execute_list_collection_specific(mocker, capsys, mock_collection_object
     mocker.patch('ansible.cli.galaxy._get_collection_widths', return_value=(14, 5))
 
     gc = GalaxyCLI(['ansible-galaxy', 'collection', 'list', collection_name])
-    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager('./', validate_certs=False)
+    tmp_path = tmp_path_factory.mktemp('test-ÅÑŚÌβŁÈ Collections')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
     gc.execute_list_collection(artifacts_manager=concrete_artifact_cm)
 
     out, err = capsys.readouterr()
@@ -175,7 +177,7 @@ def test_execute_list_collection_specific(mocker, capsys, mock_collection_object
     assert out_lines[4] == 'sandwiches.ham 1.0.0  '
 
 
-def test_execute_list_collection_specific_duplicate(mocker, capsys, mock_collection_objects, mock_from_path):
+def test_execute_list_collection_specific_duplicate(mocker, capsys, mock_collection_objects, mock_from_path, tmp_path_factory):
     """Test listing a specific collection that exists at multiple paths"""
 
     collection_name = 'sandwiches.pbj'
@@ -187,7 +189,8 @@ def test_execute_list_collection_specific_duplicate(mocker, capsys, mock_collect
     mocker.patch('ansible.galaxy.collection.validate_collection_name', collection_name)
 
     gc = GalaxyCLI(['ansible-galaxy', 'collection', 'list', collection_name])
-    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager('./', validate_certs=False)
+    tmp_path = tmp_path_factory.mktemp('test-ÅÑŚÌβŁÈ Collections')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
     gc.execute_list_collection(artifacts_manager=concrete_artifact_cm)
 
     out, err = capsys.readouterr()
@@ -206,7 +209,7 @@ def test_execute_list_collection_specific_duplicate(mocker, capsys, mock_collect
     assert out_lines[9] == 'sandwiches.pbj 1.0.0  '
 
 
-def test_execute_list_collection_specific_invalid_fqcn(mocker):
+def test_execute_list_collection_specific_invalid_fqcn(mocker, tmp_path_factory):
     """Test an invalid fully qualified collection name (FQCN)"""
 
     collection_name = 'no.good.name'
@@ -216,13 +219,13 @@ def test_execute_list_collection_specific_invalid_fqcn(mocker):
     mocker.patch('os.path.isdir', return_value=True)
 
     gc = GalaxyCLI(['ansible-galaxy', 'collection', 'list', collection_name])
+    tmp_path = tmp_path_factory.mktemp('test-ÅÑŚÌβŁÈ Collections')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
     with pytest.raises(AnsibleError, match='Invalid collection name'):
-        gc.execute_list_collection(
-            artifacts_manager=collection.concrete_artifact_manager.ConcreteArtifactsManager('./', validate_certs=False)
-        )
+        gc.execute_list_collection(artifacts_manager=concrete_artifact_cm)
 
 
-def test_execute_list_collection_no_valid_paths(mocker, capsys):
+def test_execute_list_collection_no_valid_paths(mocker, capsys, tmp_path_factory):
     """Test listing collections when no valid paths are given"""
 
     cliargs()
@@ -233,10 +236,11 @@ def test_execute_list_collection_no_valid_paths(mocker, capsys):
     mocker.patch('ansible.cli.galaxy.display.columns', 79)
     gc = GalaxyCLI(['ansible-galaxy', 'collection', 'list'])
 
+    tmp_path = tmp_path_factory.mktemp('test-ÅÑŚÌβŁÈ Collections')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
+
     with pytest.raises(AnsibleOptionsError, match=r'None of the provided paths were usable.'):
-        gc.execute_list_collection(
-            artifacts_manager=collection.concrete_artifact_manager.ConcreteArtifactsManager('./', validate_certs=False)
-        )
+        gc.execute_list_collection(artifacts_manager=concrete_artifact_cm)
 
     out, err = capsys.readouterr()
 
@@ -244,7 +248,7 @@ def test_execute_list_collection_no_valid_paths(mocker, capsys):
     assert 'exists, but it\nis not a directory.' in err
 
 
-def test_execute_list_collection_one_invalid_path(mocker, capsys, mock_collection_objects):
+def test_execute_list_collection_one_invalid_path(mocker, capsys, mock_collection_objects, tmp_path_factory):
     """Test listing all collections when one invalid path is given"""
 
     cliargs()
@@ -254,7 +258,8 @@ def test_execute_list_collection_one_invalid_path(mocker, capsys, mock_collectio
     mocker.patch('ansible.utils.color.ANSIBLE_COLOR', False)
 
     gc = GalaxyCLI(['ansible-galaxy', 'collection', 'list', '-p', 'nope'])
-    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager('./', validate_certs=False)
+    tmp_path = tmp_path_factory.mktemp('test-ÅÑŚÌβŁÈ Collections')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
     gc.execute_list_collection(artifacts_manager=concrete_artifact_cm)
 
     out, err = capsys.readouterr()
