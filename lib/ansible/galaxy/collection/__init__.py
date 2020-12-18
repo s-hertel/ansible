@@ -417,7 +417,7 @@ def install_collections(
         for coll in find_existing_collections(output_path, artifacts_manager)
     }
 
-    requested_requirements = set(
+    unsatisfied_requirements = set(
         chain.from_iterable(
             (
                 Requirement.from_dir_path(sub_coll, artifacts_manager)
@@ -431,17 +431,24 @@ def install_collections(
             for install_req in collections
         ),
     )
-    requested_requirements_names = {req.fqcn for req in requested_requirements}
+    requested_requirements_names = {req.fqcn for req in unsatisfied_requirements}
 
     # NOTE: Don't attempt to reevaluate already installed deps
-    # NOTE: unless `--force` is passed
-    # FIXME: debug why `--force` doesn't always work well
-    requested_requirements -= set() if force else {
+    # NOTE: unless `--force` or `--force-with-deps` is passed
+    unsatisfied_requirements -= set() if force or force_deps else {
         req
-        for req in requested_requirements
+        for req in unsatisfied_requirements
         for exs in existing_collections
         if req.fqcn == exs.fqcn and meets_requirements(exs.ver, req.ver)
     }
+
+    if not unsatisfied_requirements:
+        display.display(
+            'Nothing to do. All requested collections are already '
+            'installed. If you want to reinstall them, '
+            'consider using `--force`.'
+        )
+        return
 
     # FIXME: This probably needs to be improved to
     # FIXME: properly match differing src/type.
@@ -450,28 +457,16 @@ def install_collections(
         if coll.fqcn not in requested_requirements_names
     }
 
-    if not requested_requirements:
-        display.display(
-            'Nothing to do. All requested collections are already '
-            'installed. If you want to reinstall them, '
-            'consider using `--force`.'
-        )
-        return
-
-    # NOTE: Pin installed collection versions that are
-    # NOTE: not directly requested via CLI if `--force-deps` is not set
-    requested_requirements |= (
-        set() if force_deps
-        else existing_non_requested_collections
+    preferred_collections = (
+        [] if force_deps
+        else existing_non_requested_collections if force
+        else existing_collections
     )
-
     with _display_progress("Process install dependency map"):
         dependency_map = _resolve_depenency_map(
             collections,
             galaxy_apis=apis,
-            preferred_requirements=[] if force_deps
-            else existing_non_requested_collections if force
-            else existing_collections,
+            preferred_requirements=preferred_collections,
             concrete_artifacts_manager=artifacts_manager,
             no_deps=no_deps,
             allow_pre_release=allow_pre_release,
@@ -486,24 +481,7 @@ def install_collections(
                 )
                 continue
 
-            current_requirement = Requirement(
-                fqcn=concrete_coll_pin.fqcn,
-                ver=concrete_coll_pin.ver,
-                src=concrete_coll_pin.src,
-                type=concrete_coll_pin.type,
-            )
-            needs_skipping = (
-                # NOTE: No need to reinstall transitive deps
-                # NOTE: unless `--force-deps` is set
-                not force_deps and
-                current_requirement in existing_non_requested_collections
-
-                # NOTE: No need to reinstall already installed
-                # NOTE: requested targets unless `--force` is set
-                or not force
-                and current_requirement in existing_collections
-            )
-            if needs_skipping:
+            if concrete_coll_pin in preferred_collections:
                 display.display(
                     "Skipping '{coll!s}' as it is already installed".
                     format(coll=to_text(concrete_coll_pin)),
