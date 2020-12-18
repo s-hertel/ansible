@@ -15,7 +15,7 @@ except ImportError:
     TYPE_CHECKING = False
 
 if TYPE_CHECKING:
-    from typing import List, NamedTuple, Optional, Union
+    from typing import Iterable, List, NamedTuple, Optional, Union
     from ansible.galaxy.collection.concrete_artifact_manager import (
         ConcreteArtifactsManager,
     )
@@ -41,6 +41,7 @@ class CollectionDependencyProvider(AbstractProvider):
             self,  # type: CollectionDependencyProvider
             apis,  # type: MultiGalaxyAPIProxy
             concrete_artifacts_manager=None,  # type: ConcreteArtifactsManager
+            preferred_requirements=None,  # type: Iterable[Requirement]
             with_deps=True,  # type: bool
             with_pre_releases=False,  # type: bool
     ):  # type: (...) -> None
@@ -69,6 +70,7 @@ class CollectionDependencyProvider(AbstractProvider):
             Requirement.from_requirement_dict,
             art_mgr=concrete_artifacts_manager,
         )
+        self._preferred_requirements = set(preferred_requirements or ())
         self._with_deps = with_deps
         self._with_pre_releases = with_pre_releases
 
@@ -89,7 +91,7 @@ class CollectionDependencyProvider(AbstractProvider):
             resolution,  # type: Optional[Candidate]
             candidates,  # type: List[Candidate]
             information,  # type: List[NamedTuple]
-    ):  # type: (...) -> int
+    ):  # type: (...) -> Union[float, int]
         """Produce a sort key function return value for given requirement based on preference.
 
         FIXME: figure out the sort key
@@ -118,8 +120,13 @@ class CollectionDependencyProvider(AbstractProvider):
         the more preferred this requirement is (i.e. the sorting function
         is called with `reverse=False`).
         """
-        # NOTE: this mirrors the current implementation in pip and pipenv
-        # FIXME: Invent something better
+        if any(
+                candidate in self._preferred_requirements
+                for candidate in candidates
+        ):
+            # NOTE: Prefer pre-installed candidates over newer versions
+            # NOTE: available from Galaxy or other sources.
+            return float('-inf')
         return len(candidates)
 
     def find_matches(self, requirements):
@@ -155,6 +162,16 @@ class CollectionDependencyProvider(AbstractProvider):
                 for version, _none_src_server in coll_versions
             ]
 
+        preinstalled_candidates = {
+            Candidate(req.fqcn, req.ver, req.src, req.type)
+            for req in self._preferred_requirements
+            if req.fqcn == fqcn
+        }
+
+        assert len(preinstalled_candidates) < 2, (
+            'Max of 1 candidate is expected to be preinstalled'
+        )
+
         candidates = {
             candidate for candidate in (
                 Candidate(fqcn, version, src_server, 'galaxy')  # FIXME: type=galaxy?
@@ -163,7 +180,7 @@ class CollectionDependencyProvider(AbstractProvider):
             for requirement in requirements
         }
 
-        return sorted(
+        return list(preinstalled_candidates) + sorted(
             {
                 candidate for candidate in candidates
                 if all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
