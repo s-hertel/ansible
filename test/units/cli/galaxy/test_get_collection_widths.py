@@ -12,7 +12,7 @@ from ansible.galaxy.dependency_resolution.dataclasses import Requirement
 
 
 @pytest.fixture
-def collection_objects(mocker):
+def collection_objects():
     collection_ham = Requirement('sandwiches.ham', '1.5.0', None, 'galaxy')
 
     collection_pbj = Requirement('sandwiches.pbj', '2.5', None, 'galaxy')
