@@ -210,8 +210,6 @@ class CollectionDependencyProvider(AbstractProvider):
             requirement.ver.startswith('>') or
             requirement.ver.startswith('!=')
         )
-        if is_pre_release(candidate.ver) and not allow_pre_release:
-            return False
 
         # NOTE: This is a set of Pipenv-inspired optimizations. Ref:
         # https://github.com/sarugaku/passa/blob/2ac00f1/src/passa/models/providers.py#L58-L74
@@ -221,6 +219,9 @@ class CollectionDependencyProvider(AbstractProvider):
                 requirement.ver == '*'
         ):
             return True
+
+        if is_pre_release(candidate.ver) and not allow_pre_release:
+            return False
 
         return meets_requirements(
             version=candidate.ver,
@@ -251,7 +252,9 @@ class CollectionDependencyProvider(AbstractProvider):
         # NOTE: dependency resolution the outer layer will still need to
         # NOTE: know how to download and validate the artifact.
         if not self._with_deps:
-            return []
+            # Ensure top level "dependencies" of virtual candidates are returned
+            if not candidate.is_virtual:
+                return []
 
         return [
             self._make_req_from_dict({'name': dep_name, 'version': dep_req})
