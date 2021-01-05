@@ -251,10 +251,11 @@ class CollectionDependencyProvider(AbstractProvider):
         # NOTE: necessary with `--no-deps` because even with the disabled
         # NOTE: dependency resolution the outer layer will still need to
         # NOTE: know how to download and validate the artifact.
-        if not self._with_deps:
-            # Ensure top level "dependencies" of virtual candidates are returned
-            if not candidate.is_virtual:
-                return []
+        #
+        # NOTE: Virtual candidates should always return dependencies
+        # NOTE: because they are ephemeral and non-installable.
+        if not self._with_deps and not candidate.is_virtual:
+            return []
 
         return [
             self._make_req_from_dict({'name': dep_name, 'version': dep_req})
