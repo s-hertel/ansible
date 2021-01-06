@@ -301,6 +301,9 @@ class _ComputedReqKindsMixin:
                 'index server.',
             )
 
+        if req_type != 'galaxy' and req_source is None:
+            req_source, req_name = req_name, None
+
         tmp_inst_req = cls(req_name, req_version, req_source, req_type)
 
         if req_type not in {'galaxy', 'subdirs'} and req_name is None:
