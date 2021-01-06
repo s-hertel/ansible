@@ -209,7 +209,10 @@ class CollectionDependencyProvider(AbstractProvider):
             requirement.ver.startswith('<') or
             requirement.ver.startswith('>') or
             requirement.ver.startswith('!=')
-        )
+        ) and not candidate.is_virtual
+
+        if is_pre_release(candidate.ver) and not allow_pre_release:
+            return False
 
         # NOTE: This is a set of Pipenv-inspired optimizations. Ref:
         # https://github.com/sarugaku/passa/blob/2ac00f1/src/passa/models/providers.py#L58-L74
@@ -219,9 +222,6 @@ class CollectionDependencyProvider(AbstractProvider):
                 requirement.ver == '*'
         ):
             return True
-
-        if is_pre_release(candidate.ver) and not allow_pre_release:
-            return False
 
         return meets_requirements(
             version=candidate.ver,
