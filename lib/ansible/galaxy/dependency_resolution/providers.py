@@ -209,7 +209,7 @@ class CollectionDependencyProvider(AbstractProvider):
             requirement.ver.startswith('<') or
             requirement.ver.startswith('>') or
             requirement.ver.startswith('!=')
-        ) and not candidate.is_virtual
+        )
 
         if is_pre_release(candidate.ver) and not allow_pre_release:
             return False
