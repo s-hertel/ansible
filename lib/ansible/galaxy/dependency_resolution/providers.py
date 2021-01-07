@@ -162,13 +162,16 @@ class CollectionDependencyProvider(AbstractProvider):
                 for version, _none_src_server in coll_versions
             ]
 
-        preinstalled_candidates = {
-            Candidate(req.fqcn, req.ver, req.src, req.type)
-            for req in self._preferred_requirements
-            if req.fqcn == fqcn
-        }
+        all_preinstalled_candidates = set()
+        preinstalled_candidates = set()
+        for req in self._preferred_requirements:
+            if req.fqcn == fqcn:
+                candidate = Candidate(req.fqcn, req.ver, req.src, req.type)
+                all_preinstalled_candidates.add(candidate)
+                if all (self.is_satisfied_by(r, candidate) for r in requirements):
+                    preinstalled_candidates.add(candidate)
 
-        assert len(preinstalled_candidates) < 2, (
+        assert len(all_preinstalled_candidates) < 2, (
             'Max of 1 candidate is expected to be preinstalled'
         )
 
