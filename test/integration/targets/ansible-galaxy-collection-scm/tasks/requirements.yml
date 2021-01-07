@@ -55,7 +55,12 @@
 - assert:
     that:
       - result.failed
-      - 'result.stderr is search("ERROR! - command /.*/git clone ansible.nope ansible.nope failed")'
+      - >-
+        result.stderr is search("ERROR! Failed to clone a Git repository
+        from `file:///.*/.git`.")
+      - >-
+        result.stderr is search("fatal: '/.*/amazon.aws/.git' does not
+        appear to be a git repository")
 
 - name: test using name as a git repo without git+ prefix
   command: 'ansible-galaxy collection install -r name_without_type.yml'
