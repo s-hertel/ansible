@@ -7,7 +7,6 @@ from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
 import functools
-import operator
 
 try:
     from typing import TYPE_CHECKING
@@ -29,6 +28,7 @@ from ansible.galaxy.dependency_resolution.versioning import (
     is_pre_release,
     meets_requirements,
 )
+from ansible.utils.version import SemanticVersion
 
 from resolvelib import AbstractProvider
 
@@ -181,11 +181,11 @@ class CollectionDependencyProvider(AbstractProvider):
                 if all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
                 # FIXME
                 # if all(self.is_satisfied_by(requirement, candidate) and (
-                #     requirement.src is None or
+                #     requirement.src is None or  # if this is true for some candidates but not all it will break key param - Nonetype can't be compared to str
                 #     requirement.src == candidate.src
                 # ))
             },
-            key=operator.attrgetter('ver', 'src'),
+            key=lambda candidate: (SemanticVersion(candidate.ver), candidate.src,),
             reverse=True,  # prefer newer versions over older ones
         )
 
