@@ -173,7 +173,7 @@ class _ComputedReqKindsMixin:
                 'file, nor has it {galaxy_yml!s}: cannot detect version.'.
                 format(
                     galaxy_yml=to_native(_GALAXY_YAML),
-                    manifest_json=to_native(_GALAXY_YAML),
+                    manifest_json=to_native(_MANIFEST_JSON),
                     path=to_text(dir_path, errors='surrogate_or_strict'),
                 ),
             )
