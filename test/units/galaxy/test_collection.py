@@ -623,20 +623,16 @@ def test_find_existing_collections(tmp_path_factory, monkeypatch):
             assert actual_collection.namespace == 'namespace1'
             assert actual_collection.name == 'collection1'
             assert actual_collection.ver == '1.2.3'
-            # assert actual_collection.b_path == to_bytes(collection1)
-            # assert actual_collection.api is None
-            # assert actual_collection.dependencies == {}
+            assert to_text(actual_collection.src) == collection1
         else:
             assert actual_collection.namespace == 'namespace2'
             assert actual_collection.name == 'collection2'
             assert actual_collection.ver == '*'
-            # assert actual_collection.b_path == to_bytes(collection2)
-            # assert actual_collection.api is None
-            # assert actual_collection.dependencies == {}
+            assert to_text(actual_collection.src) == collection2
 
     assert mock_warning.call_count == 1
-    assert mock_warning.mock_calls[0][1][0] == "Collection at '%s' does not have a MANIFEST.json file, cannot " \
-                                               "detect version." % to_text(collection2)
+    assert mock_warning.mock_calls[0][1][0] == "Collection at '%s' does not have a MANIFEST.json file, nor has it galaxy.yml: " \
+                                               "cannot detect version." % to_text(collection2)
 
 
 def test_download_file(tmp_path_factory, monkeypatch):
