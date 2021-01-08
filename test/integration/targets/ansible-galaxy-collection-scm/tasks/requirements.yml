@@ -43,7 +43,10 @@
 - assert:
     that:
       - result.failed
-      - '"ERROR! Unknown error when attempting to call Galaxy" in result.stderr'
+      - >-
+        result.stderr is search("ERROR! Collections requirement 'source'
+        entry should contain a valid Galaxy API URL but it does not:
+        git\+file:///.*/amazon.aws/.git is not an HTTP URL.")
 
 - name: test source is not a git repo even if name and type is provided
   command: 'ansible-galaxy collection install -r source_and_name_and_type.yml'

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 import yaml
 
 from ansible.errors import AnsibleError
+from ansible.galaxy.api import GalaxyAPI
 from ansible.module_utils._text import to_bytes, to_native, to_text
 from ansible.module_utils.six.moves.urllib.parse import urlparse
 from ansible.module_utils.six import raise_from
@@ -303,6 +304,18 @@ class _ComputedReqKindsMixin:
 
         if req_type != 'galaxy' and req_source is None:
             req_source, req_name = req_name, None
+
+        if (
+                req_type == 'galaxy' and
+                isinstance(req_source, GalaxyAPI) and
+                not _is_http_url(req_source.api_server)
+        ):
+            raise AnsibleError(
+                "Collections requirement 'source' entry should contain "
+                'a valid Galaxy API URL but it does not: {not_url!s} '
+                'is not an HTTP URL.'.
+                format(not_url=req_source.api_server),
+            )
 
         tmp_inst_req = cls(req_name, req_version, req_source, req_type)
 

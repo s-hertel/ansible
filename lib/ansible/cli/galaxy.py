@@ -647,14 +647,46 @@ class GalaxyCLI(CLI):
 
             requirements['collections'] = [
                 Requirement.from_requirement_dict(
-                    collection_req if isinstance(collection_req, dict)
-                    else {'name': collection_req},
+                    self._init_coll_req_dict(collection_req),
                     artifacts_manager,
                 )
                 for collection_req in file_requirements.get('collections') or []
             ]
 
         return requirements
+
+
+    def _init_coll_req_dict(self, coll_req):
+        if not isinstance(coll_req, dict):
+            # Assume it's a string:
+            return {'name': coll_req}
+
+        if (
+                'name' not in coll_req or
+                not coll_req.get('source') or
+                coll_req.get('type', 'galaxy') != 'galaxy'
+        ):
+            return coll_req
+
+        # Try and match up the requirement source with our list of Galaxy API
+        # servers defined in the config, otherwise create a server with that
+        # URL without any auth.
+        coll_req['source'] = next(
+            iter(
+                srvr for srvr in self.api_servers
+                if coll_req['source'] in {srvr.name, srvr.api_server}
+            ),
+            GalaxyAPI(
+                self.galaxy,
+                'explicit_requirement_{name!s}'.format(
+                    name=coll_req['name'],
+                ),
+                coll_req['source'],
+                validate_certs=not context.CLIARGS['ignore_certs'],
+            ),
+        )
+
+        return coll_req
 
     @staticmethod
     def exit_without_ignore(rc=1):
