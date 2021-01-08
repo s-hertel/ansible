@@ -172,17 +172,12 @@ class CollectionDependencyProvider(AbstractProvider):
             'Max of 1 candidate is expected to be preinstalled'
         )
 
-        candidates = {
-            candidate for candidate in (
-                Candidate(fqcn, version, src_server, 'galaxy')  # FIXME: type=galaxy?
-                for version, src_server in coll_versions
-            )
-            for requirement in requirements
-        }
-
         return list(preinstalled_candidates) + sorted(
             {
-                candidate for candidate in candidates
+                candidate for candidate in (
+                    Candidate(fqcn, version, src_server, 'galaxy')
+                    for version, src_server in coll_versions
+                )
                 if all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
                 # FIXME
                 # if all(self.is_satisfied_by(requirement, candidate) and (
