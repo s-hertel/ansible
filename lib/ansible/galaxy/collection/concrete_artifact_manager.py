@@ -123,7 +123,7 @@ class ConcreteArtifactsManager:
         assert collection.is_concrete_artifact and collection.src is not None, (
             'The contract is to have a collection candidate that is '
             'unambiguously resolvable into a specific tarball '
-            'artifact pointer (a fileo or a dir on disk, an archive on '
+            'artifact pointer (a file or a dir on disk, an archive on '
             'web or a buildable Git repository reference)'
         )
         try:
