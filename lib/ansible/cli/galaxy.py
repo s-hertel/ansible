@@ -655,7 +655,6 @@ class GalaxyCLI(CLI):
 
         return requirements
 
-
     def _init_coll_req_dict(self, coll_req):
         if not isinstance(coll_req, dict):
             # Assume it's a string:
