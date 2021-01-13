@@ -518,7 +518,7 @@ def _get_meta_from_installed_dir(
     try:
         with open(b_manifest_json_path, 'rb') as manifest_fd:
             b_manifest_txt = manifest_fd.read()
-    except OSError:
+    except (IOError, OSError):
         raise LookupError(
             "The collection {manifest!s} path '{path!s}' does not exist.".
             format(
