@@ -233,13 +233,13 @@ class _ComputedReqKindsMixin:
                     and _is_concrete_artifact_pointer(req_source)
             ):
                 src_path = req_source
+            elif req_name is not None and _is_fqcn(req_name):
+                req_type = 'galaxy'
             elif (
                     req_name is not None
                     and _is_concrete_artifact_pointer(req_name)
             ):
                 src_path, req_name = req_name, None
-            elif req_name is not None and _is_fqcn(req_name):
-                req_type = 'galaxy'
             else:
                 dir_tip_tmpl = (  # NOTE: leading LFs are for concat
                     '\n\nTip: Make sure you are pointing to the right '
