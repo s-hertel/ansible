@@ -709,7 +709,7 @@ def test_install_collection(collection_artifact, monkeypatch):
     os.makedirs(os.path.join(collection_path, b'delete_me'))  # Create a folder to verify the install cleans out the dir
 
     candidate = Candidate('ansible_namespace.collection', '0.1.0', to_text(collection_tar), 'file')
-    collection.install(candidate, to_text(output_path), concrete_artifact_cm)
+    collection.install(candidate, to_native(output_path), concrete_artifact_cm)
 
     # Ensure the temp directory is empty, nothing is left behind
     assert os.listdir(temp_path) == []
@@ -725,7 +725,7 @@ def test_install_collection(collection_artifact, monkeypatch):
 
     assert mock_display.call_count == 2
     assert mock_display.mock_calls[0][1][0] == "Installing 'ansible_namespace.collection:0.1.0' to '%s'" \
-        % to_text(collection_path)
+        % to_native(collection_path)
     assert mock_display.mock_calls[1][1][0] == "ansible_namespace.collection:0.1.0 was installed successfully"
 
 
@@ -748,7 +748,7 @@ def test_install_collection_with_download(galaxy_server, collection_artifact, mo
     monkeypatch.setattr(concrete_artifact_cm, 'get_galaxy_artifact_path', mock_download)
 
     req = Requirement('ansible_namespace.collection', '0.1.0', 'https://downloadme.com', 'galaxy')
-    collection.install(req, to_text(collections_dir), concrete_artifact_cm)
+    collection.install(req, to_native(collections_dir), concrete_artifact_cm)
 
     actual_files = os.listdir(collection_path)
     actual_files.sort()
@@ -757,7 +757,7 @@ def test_install_collection_with_download(galaxy_server, collection_artifact, mo
 
     assert mock_display.call_count == 2
     assert mock_display.mock_calls[0][1][0] == "Installing 'ansible_namespace.collection:0.1.0' to '%s'" \
-        % to_text(collection_path)
+        % to_native(collection_path)
     assert mock_display.mock_calls[1][1][0] == "ansible_namespace.collection:0.1.0 was installed successfully"
 
     assert mock_download.call_count == 1
@@ -776,7 +776,7 @@ def test_install_collections_from_tar(collection_artifact, monkeypatch):
     concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(temp_path, validate_certs=False)
 
     requirements = [Requirement('ansible_namespace.collection', '0.1.0', to_text(collection_tar), 'file')]
-    collection.install_collections(requirements, to_text(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
+    collection.install_collections(requirements, to_native(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
 
     assert os.path.isdir(collection_path)
 
@@ -797,7 +797,7 @@ def test_install_collections_from_tar(collection_artifact, monkeypatch):
     assert len(display_msgs) == 4
     assert display_msgs[0] == "Process install dependency map"
     assert display_msgs[1] == "Starting collection install process"
-    assert display_msgs[2] == "Installing 'ansible_namespace.collection:0.1.0' to '%s'" % to_text(collection_path)
+    assert display_msgs[2] == "Installing 'ansible_namespace.collection:0.1.0' to '%s'" % to_native(collection_path)
 
 
 def test_install_collections_existing_without_force(collection_artifact, monkeypatch):
@@ -812,7 +812,7 @@ def test_install_collections_existing_without_force(collection_artifact, monkeyp
     assert os.path.isdir(collection_path)
 
     requirements = [Requirement('ansible_namespace.collection', '0.1.0', to_text(collection_tar), 'file')]
-    collection.install_collections(requirements, to_text(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
+    collection.install_collections(requirements, to_native(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
 
     assert os.path.isdir(collection_path)
 
@@ -844,7 +844,7 @@ def test_install_missing_metadata_warning(collection_artifact, monkeypatch):
 
     concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(temp_path, validate_certs=False)
     requirements = [Requirement('ansible_namespace.collection', '0.1.0', to_text(collection_tar), 'file')]
-    collection.install_collections(requirements, to_text(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
+    collection.install_collections(requirements, to_native(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
 
     display_msgs = [m[1][0] for m in mock_display.mock_calls if 'newline' not in m[2] and len(m[1]) == 1]
 
@@ -865,7 +865,7 @@ def test_install_collection_with_circular_dependency(collection_artifact, monkey
 
     concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(temp_path, validate_certs=False)
     requirements = [Requirement('ansible_namespace.collection', '0.1.0', to_text(collection_tar), 'file')]
-    collection.install_collections(requirements, to_text(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
+    collection.install_collections(requirements, to_native(temp_path), [], False, False, False, False, False, concrete_artifact_cm)
 
     assert os.path.isdir(collection_path)
 
@@ -886,5 +886,5 @@ def test_install_collection_with_circular_dependency(collection_artifact, monkey
     assert len(display_msgs) == 4
     assert display_msgs[0] == "Process install dependency map"
     assert display_msgs[1] == "Starting collection install process"
-    assert display_msgs[2] == "Installing 'ansible_namespace.collection:0.1.0' to '%s'" % to_text(collection_path)
+    assert display_msgs[2] == "Installing 'ansible_namespace.collection:0.1.0' to '%s'" % to_native(collection_path)
     assert display_msgs[3] == "ansible_namespace.collection:0.1.0 was installed successfully"

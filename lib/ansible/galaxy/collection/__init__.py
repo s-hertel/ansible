@@ -997,7 +997,7 @@ def find_existing_collections(path, artifacts_manager):
 
             display.vvv(
                 "Found installed collection {coll!s} at '{path!s}'".
-                format(coll=to_text(req), path=to_text(req.src))
+                format(coll=to_native(req), path=to_native(req.src))
             )
             yield req
 
