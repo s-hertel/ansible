@@ -1007,8 +1007,6 @@ def find_existing_collections(path, artifacts_manager):
 
 def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
     # type: (Candidate, str, ConcreteArtifactsManager) -> None
-    assert not collection.is_virtual
-
     b_artifact_path = (
         artifacts_manager.get_artifact_path if collection.is_concrete_artifact
         else artifacts_manager.get_galaxy_artifact_path
