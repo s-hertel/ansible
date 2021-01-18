@@ -391,6 +391,73 @@ def publish_collection(collection_path, api, wait, timeout):
                         % (api.name, api.api_server, import_uri))
 
 
+def is_requested_scm_collection(
+        collections,  # type: Iterable[Requirement]
+        preferred_collections,  # type: Iterable[Candidate]
+        fqcn,  # type: str
+        criterion,  # type: Candidate
+        criteria,
+):  # type: (...) -> Candidate or None
+    """Determines if a collection is a top-level dependency of a virtual collection
+    This is just used to determine when --force vs --force-with-deps is applicable
+
+    :param collections:
+    :param fqcn:
+    :param parent:
+    """
+    # SCM collections have a virtual or subdirs parent
+    if not criterion.iter_parent():
+        return
+
+    found = None
+    for coll in set(preferred_collections):
+        if coll.fqcn == fqcn:
+            found = coll
+            # The resolver should error if more than 1 is found, so we can break early
+            break
+
+    # Not installed yet so we can short-circuit; neither --force nor --force-with-deps is relevant
+    if not found:
+        return
+
+    for parent in criterion.iter_parent():
+        if parent is None or not parent.is_virtual or not parent.is_subdirs:
+            continue
+
+        if parent.is_virtual:
+            # Iterate over the user-provided 'collections' to differentiate between
+            # user-specified collections that should respect --force and virtual
+            # dependencies that need --force-with-deps.
+            if is_virtual_req(parent, collections):
+                return found
+
+        if parent.is_subdirs:
+            if criteria is None:
+                # FIXME ??
+                # There has been an incompatible req provided, preventing criteria from being
+                # resolved. We only have the criterion that failed, and there is no way to
+                # check if the parent of the parent is virtual and in the requested collections.
+                # Return None, to err on the side of caution and ask for --force-with-deps
+                return
+
+            parent_criterion = criteria[parent.canonical_package_id]
+            for grandparent in parent_criterion.iter_parent():
+                if grandparent is None or not grandparent.is_virtual:
+                    continue
+
+                if is_virtual_req(grandparent, collections):
+                    return found
+
+
+def is_virtual_req(candidate, requirements):
+    for req in requirements:
+        if not req.is_virtual:
+            continue
+        if req.src == candidate.src and req.type == candidate.type:
+            return True
+    return False
+
+
 def install_collections(
         collections,  # type: Iterable[Requirement]
         output_path,  # type: str
@@ -468,42 +535,91 @@ def install_collections(
         for coll in preferred_requirements
     }
     with _display_progress("Process install dependency map"):
-        try:
-            dependency_map = _resolve_depenency_map(
-                collections,
-                galaxy_apis=apis,
-                preferred_candidates=preferred_collections,
-                concrete_artifacts_manager=artifacts_manager,
-                no_deps=no_deps,
-                allow_pre_release=allow_pre_release,
-            )
-        except InconsistentCandidate as inconsistent_candidate_exc:
-            # FIXME: Processing this error is hacky and should be removed along
-            # FIXME: with implementing the automatic replacement for installed
-            # FIXME: collections.
-            if not all(
-                    inconsistent_candidate_exc.candidate.fqcn == r.fqcn
-                    for r in inconsistent_candidate_exc.criterion.iter_requirement()
-            ):
-                raise
+        needs_resolution = True
+        while needs_resolution:
+            try:
+                dependency_criteria = _get_resolver(
+                    collections,
+                    galaxy_apis=apis,
+                    preferred_candidates=preferred_collections,
+                    concrete_artifacts_manager=artifacts_manager,
+                    no_deps=no_deps,
+                    allow_pre_release=allow_pre_release,
+                ).criteria
 
-            req_info = inconsistent_candidate_exc.criterion.information[0]
-            force_flag = (
-                '--force' if req_info.parent is None
-                else '--force-with-deps'
-            )
-            raise_from(
-                AnsibleError(
-                    'Cannot meet requirement {collection!s} as it is already '
-                    "installed at version '{installed_ver!s}'. "
-                    'Use {force_flag!s} to overwrite'.format(
-                        collection=req_info.requirement,
-                        force_flag=force_flag,
-                        installed_ver=inconsistent_candidate_exc.candidate.ver,
-                    )
-                ),
-                inconsistent_candidate_exc,
-            )
+                needs_resolution = False
+
+                # We can't remove SCM collections before we have resolved the requirements
+                # Collections in a git repositories are "dependencies" of a virtual parent collection.
+                # If '--force-with-deps' is used, all collections are reinstalled and this can be skipped,
+                # but if only '--force' is True, we need to consider the top level-dependencies of virtual
+                # collections and remove any that exist in preferred_collections so they can be reinstalled.
+                if force and not force_deps:
+                    for fqcn in dependency_criteria:
+                        top_level_scm = is_requested_scm_collection(
+                            collections, preferred_collections, fqcn, dependency_criteria[fqcn], dependency_criteria
+                        )
+
+                        if top_level_scm:
+                            preferred_collections.remove(top_level_scm)
+
+                # Now we can get the finalized dependency map
+                dependency_map = _resolve_depenency_map(
+                    collections,
+                    galaxy_apis=apis,
+                    preferred_candidates=preferred_collections,
+                    concrete_artifacts_manager=artifacts_manager,
+                    no_deps=no_deps,
+                    allow_pre_release=allow_pre_release,
+                )
+
+
+            except InconsistentCandidate as inconsistent_candidate_exc:
+                # FIXME: Processing this error is hacky and should be removed along
+                # FIXME: with implementing the automatic replacement for installed
+                # FIXME: collections.
+                if not all(
+                        inconsistent_candidate_exc.candidate.fqcn == r.fqcn
+                        for r in inconsistent_candidate_exc.criterion.iter_requirement()
+                ):
+                    raise
+
+                req_info = inconsistent_candidate_exc.criterion.information[0]
+                top_level_scm = is_requested_scm_collection(
+                    collections, preferred_collections, req_info.requirement.fqcn, inconsistent_candidate_exc.criterion, None
+                )
+
+                # SCM namespaces requirements and depdencies will both require --force-with-deps
+                # if there are incompatibilities, because we don't have resolved criteria at
+                # this point to identify the grandparent of a collection to check if it's in
+                # the user-provided requirements.
+                # (A collection in an git namespace is the child of a subdir collection
+                # which is the child of a virtual collection)
+
+                # But for SCM collection requirements, if force is True we can remove them and try
+                # resolving criteria again.
+                if top_level_scm and force:
+                    preferred_collections.remove(top_level_scm)
+                    continue
+
+                needs_resolution = False
+                force_flag = (
+                    '--force' if req_info.parent is None or top_level_scm is not None
+                    else '--force-with-deps'
+                )
+
+                raise_from(
+                    AnsibleError(
+                        'Cannot meet requirement {collection!s} as it is already '
+                        "installed at version '{installed_ver!s}'. "
+                        'Use {force_flag!s} to overwrite'.format(
+                            collection=req_info.requirement,
+                            force_flag=force_flag,
+                            installed_ver=inconsistent_candidate_exc.candidate.ver,
+                        )
+                    ),
+                    inconsistent_candidate_exc,
+                )
 
     with _display_progress("Starting collection install process"):
         for fqcn, concrete_coll_pin in dependency_map.items():
@@ -1230,7 +1346,7 @@ def _is_child_path(path, parent_path, link_name=None):
     return b_path == b_parent_path or b_path.startswith(b_parent_path + to_bytes(os.path.sep))
 
 
-def _resolve_depenency_map(
+def _get_resolver(
         requested_requirements,  # type: Iterable[Requirement]
         galaxy_apis,  # type: Iterable[GalaxyAPI]
         concrete_artifacts_manager,  # type: ConcreteArtifactsManager
@@ -1246,11 +1362,12 @@ def _resolve_depenency_map(
         with_deps=not no_deps,
         with_pre_releases=allow_pre_release,
     )
+
     try:
         return collection_dep_resolver.resolve(
             requested_requirements,
             max_rounds=2000000,  # NOTE: same constant pip uses
-        ).mapping
+        )
     except CollectionDependencyResolutionImpossible as dep_exc:
         conflict_causes = (
             '* {req.fqcn!s}:{req.ver!s} ({dep_origin!s})'.format(
@@ -1274,3 +1391,23 @@ def _resolve_depenency_map(
             AnsibleError('\n'.join(error_msg_lines)),
             dep_exc,
         )
+
+
+def _resolve_depenency_map(
+        requested_requirements,  # type: Iterable[Requirement]
+        galaxy_apis,  # type: Iterable[GalaxyAPI]
+        concrete_artifacts_manager,  # type: ConcreteArtifactsManager
+        preferred_candidates,  # type: Optional[Iterable[Candidate]]
+        no_deps,  # type: bool
+        allow_pre_release,  # type: bool
+):  # type: (...) -> Dict[str, Candidate]
+    """Return the resolved dependency map."""
+
+    return _get_resolver(
+        requested_requirements,
+        galaxy_apis,
+        concrete_artifacts_manager,
+        preferred_candidates,
+        no_deps,
+        allow_pre_release
+    ).mapping

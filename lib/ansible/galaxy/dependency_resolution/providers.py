@@ -169,7 +169,8 @@ class CollectionDependencyProvider(AbstractProvider):
         fqcn = first_req.fqcn
         # The fqcn is guaranteed to be the same
         coll_versions = self._api_proxy.get_collection_versions(first_req)
-        if first_req.is_concrete_artifact:
+        # Treat subdir and git collections like normal collections but exclude virtual parents and tar.gz artifacts
+        if first_req.is_virtual or first_req.type in ('file', 'url',):
             # FIXME: do we assume that all the following artifacts are also concrete?
             # FIXME: does using fqcn==None cause us problems here?
 
@@ -186,7 +187,8 @@ class CollectionDependencyProvider(AbstractProvider):
         return list(preinstalled_candidates) + sorted(
             {
                 candidate for candidate in (
-                    Candidate(fqcn, version, src_server, 'galaxy')
+                    #Candidate(fqcn, version, src_server, 'galaxy')
+                    Candidate(fqcn, version, src_server, 'galaxy' if not first_req.is_concrete_artifact else first_req.type)
                     for version, src_server in coll_versions
                 )
                 if all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
