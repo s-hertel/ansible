@@ -1,0 +1,21 @@
+---
+breaking_changes:
+- >-
+  Replaced the in-tree dependency resolver with an external implementation
+  that pip >= 20.3 uses now by default — ``resolvelib``.
+  (https://github.com/ansible/ansible/issues/71784)
+- >-
+  Made SCM collections be reinstalled regardless of ``--force`` being
+  present.
+major_changes:
+- |
+  Declared ``resolvelib >= 0.5.3, < 0.6.0`` a direct dependency of
+  ansible-core. Refs:
+  - https://github.com/sarugaku/resolvelib
+  - https://pypi.org/p/resolvelib
+  - https://pradyunsg.me/blog/2020/03/27/pip-resolver-testing
+minor_changes:
+- >-
+  Refactored ``ansible-galaxy collection [download|install|verify]``
+  CLI subcommands with the public interface kept intact.
+...
