@@ -222,11 +222,37 @@ def test_build_requirement_from_path_invalid_manifest(collection_artifact):
         Requirement.from_dir_path_as_unknown(collection_artifact[0], concrete_artifact_cm)
 
 
+def test_build_artifact_from_path_no_version(collection_artifact, monkeypatch):
+    mock_display = MagicMock()
+    monkeypatch.setattr(Display, 'display', mock_display)
+
+    # a collection artifact should always contain a valid version
+    manifest_path = os.path.join(collection_artifact[0], b'MANIFEST.json')
+    manifest_value = json.dumps({
+        'collection_info': {
+            'namespace': 'namespace',
+            'name': 'name',
+            'version': '',
+            'dependencies': {}
+        }
+    })
+
+    with open(manifest_path, 'wb') as manifest_obj:
+        manifest_obj.write(to_bytes(manifest_value))
+
+    tmp_path = os.path.join(os.path.split(collection_artifact[1])[0], b'temp')
+    concrete_artifact_cm = collection.concrete_artifact_manager.ConcreteArtifactsManager(tmp_path, validate_certs=False)
+
+    expected = "Collection metadata file at `.*` is expected to have a valid SemVer version value but got ''"
+    with pytest.raises(AnsibleError, match=expected):
+        Requirement.from_dir_path_as_unknown(collection_artifact[0], concrete_artifact_cm)
+
+
 def test_build_requirement_from_path_no_version(collection_artifact, monkeypatch):
     mock_display = MagicMock()
     monkeypatch.setattr(Display, 'display', mock_display)
 
-    # a MANIFEST.json should contain a valid version, but version may be falsey/arbitrary strings for collections in development
+    # version may be falsey/arbitrary strings for collections in development
     manifest_path = os.path.join(collection_artifact[0], b'galaxy.yml')
     metadata = {
         'authors': ['Ansible'],
