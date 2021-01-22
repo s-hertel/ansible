@@ -179,3 +179,6 @@
     test_name: 'galaxy_ng'
     test_server: '{{ galaxy_ng_server }}'
     vX: "v3/"
+
+- name: run ansible-galaxy collection list tests
+  include_tasks: list.yml
