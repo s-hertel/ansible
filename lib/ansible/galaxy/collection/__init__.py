@@ -286,6 +286,7 @@ def download_collections(
             concrete_artifacts_manager=artifacts_manager,
             no_deps=no_deps,
             allow_pre_release=allow_pre_release,
+            upgrade=False,
         )
 
     b_output_path = to_bytes(output_path, errors='surrogate_or_strict')
@@ -409,6 +410,7 @@ def install_collections(
         force_deps,  # type: bool
         allow_pre_release,  # type: bool
         artifacts_manager,  # type: ConcreteArtifactsManager
+        upgrade=False,  # type: bool
 ):  # type: (...) -> None
     """Install Ansible collections to the path specified.
 
@@ -451,7 +453,7 @@ def install_collections(
         if req.fqcn == exs.fqcn and meets_requirements(exs.ver, req.ver)
     }
 
-    if not unsatisfied_requirements:
+    if not unsatisfied_requirements and not upgrade:
         display.display(
             'Nothing to do. All requested collections are already '
             'installed. If you want to reinstall them, '
@@ -484,6 +486,7 @@ def install_collections(
                 concrete_artifacts_manager=artifacts_manager,
                 no_deps=no_deps,
                 allow_pre_release=allow_pre_release,
+                upgrade=upgrade,
             )
         except InconsistentCandidate as inconsistent_candidate_exc:
             # FIXME: Processing this error is hacky and should be removed along
@@ -1281,6 +1284,7 @@ def _resolve_depenency_map(
         preferred_candidates,  # type: Optional[Iterable[Candidate]]
         no_deps,  # type: bool
         allow_pre_release,  # type: bool
+        upgrade=False,  # type: bool
 ):  # type: (...) -> Dict[str, Candidate]
     """Return the resolved dependency map."""
     collection_dep_resolver = build_collection_dependency_resolver(
@@ -1289,6 +1293,7 @@ def _resolve_depenency_map(
         preferred_candidates=preferred_candidates,
         with_deps=not no_deps,
         with_pre_releases=allow_pre_release,
+        upgrade=upgrade,
     )
     try:
         return collection_dep_resolver.resolve(

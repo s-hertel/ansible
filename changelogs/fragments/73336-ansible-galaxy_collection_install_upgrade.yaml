@@ -1,0 +1,4 @@
+major_changes:
+- >-
+  It became possible to upgrade Ansible collections from Galaxy servers
+  using the ``--upgrade`` option with ``ansible-galaxy collection install``.
