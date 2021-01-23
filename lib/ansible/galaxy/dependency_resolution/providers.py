@@ -43,6 +43,7 @@ class CollectionDependencyProvider(AbstractProvider):
             preferred_candidates=None,  # type: Iterable[Candidate]
             with_deps=True,  # type: bool
             with_pre_releases=False,  # type: bool
+            upgrade=False,  # type: bool
     ):  # type: (...) -> None
         r"""Initialize helper attributes.
 
@@ -67,6 +68,7 @@ class CollectionDependencyProvider(AbstractProvider):
         self._preferred_candidates = set(preferred_candidates or ())
         self._with_deps = with_deps
         self._with_pre_releases = with_pre_releases
+        self._upgrade = upgrade
 
     def identify(self, requirement_or_candidate):
         # type: (Union[Candidate, Requirement]) -> str
@@ -182,7 +184,7 @@ class CollectionDependencyProvider(AbstractProvider):
             if candidate.fqcn == fqcn
         }
 
-        return list(preinstalled_candidates) + sorted(
+        latest_matches = sorted(
             {
                 candidate for candidate in (
                     Candidate(fqcn, version, src_server, 'galaxy')
@@ -200,6 +202,16 @@ class CollectionDependencyProvider(AbstractProvider):
             ),
             reverse=True,  # prefer newer versions over older ones
         )
+
+        if self._upgrade:
+            for latest in latest_matches:
+                for preinstalled in set(preinstalled_candidates):
+                    if latest.fqcn != preinstalled.fqcn:
+                        continue
+                    if SemanticVersion(latest.ver) > SemanticVersion(preinstalled.ver):
+                        preinstalled_candidates.remove(preinstalled)
+
+        return list(preinstalled_candidates) + latest_matches
 
     def is_satisfied_by(self, requirement, candidate):
         # type: (Requirement, Candidate) -> bool
