@@ -236,7 +236,6 @@ def test_build_artifact_from_path_no_version(collection_artifact, monkeypatch):
             'dependencies': {}
         }
     })
-
     with open(manifest_path, 'wb') as manifest_obj:
         manifest_obj.write(to_bytes(manifest_value))
 
