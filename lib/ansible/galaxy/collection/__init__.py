@@ -1118,11 +1118,31 @@ def install_src(
 
     :raises AnsibleError: If no collection metadata found.
     """
+    # Try to use the cached metadata first
     collection_meta = artifacts_manager.get_direct_collection_meta(collection)
 
-    if 'build_ignore' not in collection_meta:  # installed collection, not src
-        # FIXME: optimize this? use a different process? copy instead of build?
-        collection_meta['build_ignore'] = []
+    if 'build_ignore' not in collection_meta:  # the metadata is from a MANIFEST.json
+        # Installing from source control is intended for collections in
+        # development. If the directory happens to contain a MANIFEST.json,
+        # we need to use the galaxy.yml metadata so we're building the
+        # collection with the correct data.
+        try:
+            collection_meta = _get_meta_from_src_dir(
+                artifacts_manager.get_artifact_path(collection)
+            )
+        except LookupError as lookup_err:
+            raise_from(
+                AnsibleError(
+                    '{path} appears to be an SCM collection source, but the '
+                    'required galaxy.yml was not found. Append #path/to/collection/ '
+                    'to your URI (before the comma separated version, if one is '
+                    'specified) to point to a directory containing the galaxy.yml or '
+                    'the namespace directory of multiple collections'.
+                    format(path=collection.src)
+                ),
+                lookup_err,
+            )
+
     collection_manifest = _build_manifest(**collection_meta)
     file_manifest = _build_files_manifest(
         b_collection_path,
