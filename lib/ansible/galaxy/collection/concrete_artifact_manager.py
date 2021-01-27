@@ -72,6 +72,7 @@ class ConcreteArtifactsManager:
         self._artifact_meta_cache = {}  # type: Dict[bytes, Dict[str, Optional[Union[str, List[str], Dict[str, str]]]]]
         self._galaxy_collection_cache = {}  # type: Dict[Union[Candidate, Requirement], Tuple[str, str, GalaxyToken]]
         self._b_working_directory = b_working_directory  # type: bytes
+        self._dir_is_only_scm = False
 
     def get_galaxy_artifact_path(self, collection):
         # type: (Union[Candidate, Requirement]) -> bytes
@@ -244,7 +245,7 @@ class ConcreteArtifactsManager:
         elif collection.is_dir:  # should we just build a coll instead?
             # FIXME: what if there's subdirs?
             try:
-                collection_meta = _get_meta_from_dir(b_artifact_path)
+                collection_meta = _get_meta_from_dir(b_artifact_path, dev_only=self._dir_is_only_scm)
             except LookupError as lookup_err:
                 raise_from(
                     AnsibleError(
@@ -503,7 +504,11 @@ def _normalize_galaxy_yml_manifest(
 
 def _get_meta_from_dir(
         b_path,  # type: bytes
+        dev_only=False,  # type: bool
 ):  # type: (...) -> Dict[str, Optional[Union[str, List[str], Dict[str, str]]]]
+    if dev_only:
+        # This is used for collections in git repositories, which are required to have a galaxy.yml
+        return _get_meta_from_src_dir(b_path)
     try:
         return _get_meta_from_installed_dir(b_path)
     except LookupError:

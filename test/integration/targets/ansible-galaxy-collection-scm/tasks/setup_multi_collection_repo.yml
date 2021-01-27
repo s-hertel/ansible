@@ -12,6 +12,43 @@
     - 'ansible_test.collection_1'
     - 'ansible_test.collection_2'
 
+- name: Add MANIFEST.json files with different metadata to test galaxy.yml is used
+  copy:
+    content: "{{ manifest_data | to_json }}"
+    dest: '{{ galaxy_dir }}/development/ansible_test/{{ item }}/MANIFEST.json'
+  loop:
+    - collection_1
+    - collection_2
+  vars:
+    manifest_data: {
+      "collection_info": {
+        "namespace": "ansible_test",
+        "name": "{{ item }}",
+        "version": "0.0.1",  # development version is 1.0.0
+        "authors": [
+          "your name <example@domain.com>"
+        ],
+        "readme": "README.md",
+        "tags": [],
+        "description": "your collection description",
+        "license": [],
+        "license_file": "COPYING",
+        "dependencies": {},  # development version has dependencies
+        "repository": "http://example.com/repository",
+        "documentation": "http://docs.example.com",
+        "homepage": "http://example.com",
+        "issues": "http://example.com/issue/tracker"
+       },
+       "file_manifest_file": {
+        "name": "FILES.json",
+        "ftype": "file",
+        "chksum_type": "sha256",
+        "chksum_sha256": "3d8bd9a00f046f1e25c54f18ef9ef448cdb736b404a5ea70ae4a186f70d98f4a",
+        "format": 1
+       },
+       "format": 1
+      }
+
 - name: Add collection_2 as a dependency of collection_1
   lineinfile:
     path: '{{ galaxy_dir }}/development/ansible_test/collection_1/galaxy.yml'

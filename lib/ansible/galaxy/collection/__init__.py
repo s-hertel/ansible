@@ -1025,37 +1025,6 @@ def find_existing_collections(path, artifacts_manager):
             yield req
 
 
-def scm_coll_from_development(collection, artifacts_manager):
-    # type: (Candidate, ConcreteArtifactsManager) -> Candidate
-    # If the metadata came from a MANIFEST.json the 'build_ignore' key will be missing
-    if 'build_ignore' in artifacts_manager.get_direct_collection_meta(collection):
-        return collection
-    try:
-        collection_meta = _get_meta_from_src_dir(
-            artifacts_manager.get_artifact_path(collection)
-        )
-    except LookupError as lookup_err:
-        raise_from(
-            AnsibleError(
-                '{path} appears to be an SCM collection source, but the '
-                'required galaxy.yml was not found. Append #path/to/collection/ '
-                'to your URI (before the comma separated version, if one is '
-                'specified) to point to a directory containing the galaxy.yml or '
-                'the namespace directory of multiple collections'.
-                format(path=collection.src)
-            ),
-            lookup_err,
-        )
-
-    artifacts_manager._artifact_meta_cache[collection.src] = collection_meta
-
-    fqcn = '{namespace!s}.{name!s}'.format(
-        namespace=collection_meta['namespace'],
-        name=collection_meta['name']
-    )
-    return Candidate(fqcn, collection_meta['version'], collection.src, collection.type)
-
-
 def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
     # type: (Candidate, str, ConcreteArtifactsManager) -> None
     """Install a collection under a given path.
@@ -1068,18 +1037,6 @@ def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
         artifacts_manager.get_artifact_path if collection.is_concrete_artifact
         else artifacts_manager.get_galaxy_artifact_path
     )(collection)
-
-    if collection.is_dir:
-        # Installing from source control is intended for collections in
-        # development. If the directory happens to contain a MANIFEST.json
-        # (it really shouldn't), then we need to use the galaxy.yml
-        # metadata anyway so we're building the collection with the
-        # development metadata.
-        # If the galaxy.yml is missing, raises AnsibleError
-        collection = scm_coll_from_development(
-            collection,
-            artifacts_manager
-        )
 
     collection_path = os.path.join(path, collection.namespace, collection.name)
     b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
@@ -1321,6 +1278,7 @@ def _resolve_depenency_map(
         allow_pre_release,  # type: bool
 ):  # type: (...) -> Dict[str, Candidate]
     """Return the resolved dependency map."""
+    concrete_artifacts_manager._dir_is_only_scm = True
     collection_dep_resolver = build_collection_dependency_resolver(
         galaxy_apis=galaxy_apis,
         concrete_artifacts_manager=concrete_artifacts_manager,
@@ -1329,10 +1287,12 @@ def _resolve_depenency_map(
         with_pre_releases=allow_pre_release,
     )
     try:
-        return collection_dep_resolver.resolve(
+        resolved_mapping = collection_dep_resolver.resolve(
             requested_requirements,
             max_rounds=2000000,  # NOTE: same constant pip uses
         ).mapping
+        concrete_artifacts_manager._dir_is_only_scm = False
+        return resolved_mapping
     except CollectionDependencyResolutionImpossible as dep_exc:
         conflict_causes = (
             '* {req.fqcn!s}:{req.ver!s} ({dep_origin!s})'.format(
