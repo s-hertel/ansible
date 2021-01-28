@@ -16,7 +16,7 @@ To upgrade a collection to the latest available version from the Galaxy server y
 
 .. code-block:: bash
 
-  ansible-galaxy collection install my_namespace.my_collection --upgrade
+   ansible-galaxy collection install my_namespace.my_collection --upgrade
 
 You can also directly use the tarball from your build:
 
