@@ -38,6 +38,37 @@
           - "\"Skipping 'namespace1.collection1:2.0.0' as it is already installed\" in result.stdout_lines"
           - "\"Skipping 'namespace1.collection2:2.0.0' as it is already installed\" in result.stdout_lines"
 
+- name: test installing a new version without force or explicit upgrade flag
+  block:
+    - name: set up an upgradable collection and dependency
+      command: ansible-galaxy collection install namespace1.collection1:1.0.0 namespace1.collection2:1.0.0 --no-deps --force -s pulp_v3 {{ galaxy_verbosity }}
+      register: result
+      failed_when:
+        - '"namespace1.collection1:1.0.0 was installed successfully" not in result.stdout_lines'
+        - '"namespace1.collection2:1.0.0 was installed successfully" not in result.stdout_lines'
+
+    - name: upgrade the collection and any dependencies
+      command: ansible-galaxy collection install "namespace1.collection1:2.0.0" -s pulp_v3 {{ galaxy_verbosity }}
+      register: result
+
+    - assert:
+        that:
+          - "collection_line.endswith('was installed successfully')"
+          - "collection_version == '2.0.0'"
+          - "\"Skipping 'namespace1.collection2:1.0.0' as it is already installed\" in result.stdout_lines"
+      vars:
+        # Hack to replace unicode characters for JMESPath filter https://github.com/ansible/ansible/issues/20379
+        collection_line: "{{ result.stdout_lines | to_json | from_json | json_query(\"[?starts_with(@, 'namespace1.collection1')]\") | first }}"
+        collection_version: "{{ collection_line | regex_search(version_re) }}"
+
+    - name: upgrading again should make no changes
+      command: ansible-galaxy collection install "namespace1.collection1:2.0.0" -s pulp_v3 {{ galaxy_verbosity }}
+      register: result
+
+    - assert:
+        that:
+          - "\"Nothing to do. All requested collections are already installed.\" in result.stdout"
+
 - name: test upgrading a collection with an inexact requirement and --no-deps
   block:
     - name: set up an upgradable collection and dependency
@@ -46,6 +77,19 @@
       failed_when:
         - '"namespace1.collection1:1.0.0 was installed successfully" not in result.stdout_lines'
         - '"namespace1.collection2:1.0.0 was installed successfully" not in result.stdout_lines'
+
+    - name: test new version constraint that matches the preinstalled version does nothing
+      command: ansible-galaxy collection install namespace1.collection1:<=2.0.0 --no-deps -s pulp_v3 {{ galaxy_verbosity }}
+      register: result
+
+    - assert:
+        that:
+          - '"namespace1.collection1:2.0.0 was installed successfully" not in result.stdout_lines'
+          # shouldn't have even been examined
+          - "\"Skipping 'namespace1.collection1:1.0.0' as it is already installed\" not in result.stdout_lines"
+          - '"namespace1.collection2:2.0.0 was installed successfully" not in result.stdout_lines'
+          # shouldn't have even been examined
+          - "\"Skipping 'namespace1.collection2:1.0.0' as it is already installed\" not in result.stdout_lines"
 
     - name: upgrade the collection with an inexact version and --no-deps
       command: ansible-galaxy collection install namespace1.collection1:<=2.0.0 --no-deps --upgrade -s pulp_v3 {{ galaxy_verbosity }}
@@ -57,6 +101,14 @@
           - '"namespace1.collection2:2.0.0 was installed successfully" not in result.stdout_lines'
           # shouldn't have even been examined
           - "\"Skipping 'namespace1.collection2:1.0.0' as it is already installed\" not in result.stdout_lines"
+
+    - name: test implicitly upgrading with an inexact flag
+      command: ansible-galaxy collection install namespace1.collection2:>1.0.0 -s pulp_v3 {{ galaxy_verbosity }}
+      register: result
+
+    - assert:
+        that:
+          - '"namespace1.collection2:2.0.0 was installed successfully" in result.stdout_lines'
 
 - name: test upgrading a dep of a collection matching the latest version
   block:

@@ -179,10 +179,10 @@ class CollectionDependencyProvider(AbstractProvider):
                 for version, _none_src_server in coll_versions
             ]
 
-        preinstalled_candidates = {
-            candidate for candidate in self._preferred_candidates
-            if candidate.fqcn == fqcn
-        }
+        preinstalled_candidates = set()
+        for candidate in self._preferred_candidates:
+            if candidate.fqcn == fqcn and all(self.is_satisfied_by(requirement, candidate) for requirement in requirements):
+                preinstalled_candidates.add(candidate)
 
         latest_matches = sorted(
             {
