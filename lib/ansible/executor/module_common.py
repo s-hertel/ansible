@@ -1370,23 +1370,12 @@ def modify_module(module_name, module_path, module_args, templar, task_vars=None
     return (b_module_data, module_style, shebang)
 
 
-def get_action_args_with_defaults(action, args, defaults, templar, redirected_names=None):
-    group_collection_map = {
-        'acme': ['community.crypto'],
-        'aws': ['amazon.aws', 'community.aws'],
-        'azure': ['azure.azcollection'],
-        'cpm': ['wti.remote'],
-        'docker': ['community.general', 'community.docker'],
-        'gcp': ['google.cloud'],
-        'k8s': ['community.kubernetes', 'community.general', 'community.kubevirt', 'community.okd', 'kubernetes.core'],
-        'os': ['openstack.cloud'],
-        'ovirt': ['ovirt.ovirt', 'community.general'],
-        'vmware': ['community.vmware'],
-        'testgroup': ['testns.testcoll', 'testns.othercoll', 'testns.boguscoll']
-    }
-
-    if not redirected_names:
-        redirected_names = [action]
+def get_action_args_with_defaults(action, args, defaults, templar, redirected_names=None, action_groups=None):
+    # FIXME: pass in the canonical name as the 'action' parameter and remove use of the 'redirected_names' list
+    if redirected_names:
+        resolved_action_name = redirected_names[-1]
+    else:
+        resolved_action_name = action
 
     tmp_args = {}
     module_defaults = {}
@@ -1396,31 +1385,20 @@ def get_action_args_with_defaults(action, args, defaults, templar, redirected_na
         for default in defaults:
             module_defaults.update(default)
 
-    # if I actually have defaults, template and merge
-    if module_defaults:
-        module_defaults = templar.template(module_defaults)
+    # module_defaults keys are static, but the values may be templated
+    module_defaults = templar.template(module_defaults)
 
-        # deal with configured group defaults first
-        for default in module_defaults:
-            if not default.startswith('group/'):
-                continue
-
+    for default in module_defaults:
+        if default.startswith('group/'):
             group_name = default.split('group/')[-1]
+            if action_groups is None:
+                # 3rd party called this without providing cached action_groups... add a warning, or just ignore?
+                continue
+            elif resolved_action_name in action_groups.get(group_name, []):
+                tmp_args.update((module_defaults.get('group/%s' % group_name) or {}).copy())
 
-            for collection_name in group_collection_map.get(group_name, []):
-                try:
-                    action_group = _get_collection_metadata(collection_name).get('action_groups', {})
-                except ValueError:
-                    # The collection may not be installed
-                    continue
-
-                if any(name for name in redirected_names if name in action_group):
-                    tmp_args.update((module_defaults.get('group/%s' % group_name) or {}).copy())
-
-        # handle specific action defaults
-        for action in redirected_names:
-            if action in module_defaults:
-                tmp_args.update(module_defaults[action].copy())
+        elif default == resolved_action_name:
+            tmp_args.update(module_defaults[default].copy())
 
     # direct args override all
     tmp_args.update(args)
