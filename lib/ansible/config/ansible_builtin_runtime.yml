@@ -9676,3 +9676,42 @@ import_redirection:
     redirect: ansible.module_utils
   ansible_collections.ansible.builtin.plugins:
     redirect: ansible.plugins
+action_groups:
+  testgroup:
+    - ping
+    - formerly_core_ping
+    # TODO - bikeshed syntax for including other groups
+    # Could use the 'redirect' format instead, but not sure that it really makes intuitive sense since
+    # group redirection would rarely be 1:1 and would end up looking like a tree rather than redirect list
+    # and some collections might end up managing duplicate lists (so community and supported would be
+    # able to use a common group name, for example).
+    - extend_group testns.testcoll.testgroup
+    - extend_group testns.testcoll.anothergroup
+    - extend_group testns.boguscoll.testgroup
+  aws:
+    - extend_group amazon.aws.aws
+    - extend_group community.aws.aws
+  acme:
+    - extend_group community.crypto.acme
+  azure:
+    - extend_group azure.azcollection.azure
+  cpm:
+    - extend_group wti.remote.cpm
+  docker:
+    - extend_group community.general.docker
+    - extend_group community.docker.docker
+  gcp:
+    - extend_group google.cloud.gcp
+  k8s:
+    - extend_group community.kubernetes.k8s
+    - extend_group community.general.k8s
+    - extend_group community.kubevirt.k8s
+    - extend_group community.okd.k8s
+    - extend_group kubernetes.core.k8s
+  os:
+    - extend_group openstack.cloud.os
+  ovirt:
+    - extend_group ovirt.ovirt.ovirt
+    - extend_group community.general.ovirt
+  vmware:
+    - extend_group community.vmware.vmware

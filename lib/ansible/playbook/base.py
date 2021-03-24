@@ -299,6 +299,26 @@ class FieldAttributeBase(with_metaclass(BaseMeta, object)):
 
         self._validated = True
 
+    def _validate_module_defaults(self, attribute, name, value):
+        if value is None:
+            return
+
+        if not isinstance(value, list):
+            value = [value]
+
+        validated_module_defaults = []
+        for defaults_dict in value:
+            validated_defaults_dict = {}
+            for defaults_entry, defaults in defaults_dict.items():
+                if defaults_entry.startswith('group/'):
+                    group_name = defaults_entry.split('group/')[-1]
+                    if len(group_name.split('.')) < 3:
+                        defaults_entry = 'group/ansible.builtin.' + group_name
+                validated_defaults_dict[defaults_entry] = defaults
+            validated_module_defaults.append(validated_defaults_dict)
+
+        setattr(self, name, validated_module_defaults)
+
     def squash(self):
         '''
         Evaluates all attributes and sets them to the evaluated version,

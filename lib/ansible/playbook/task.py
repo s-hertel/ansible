@@ -36,7 +36,9 @@ from ansible.playbook.conditional import Conditional
 from ansible.playbook.loop_control import LoopControl
 from ansible.playbook.role import Role
 from ansible.playbook.taggable import Taggable
+from ansible.plugins.loader import module_loader, action_loader
 from ansible.utils.collection_loader import AnsibleCollectionConfig
+from ansible.utils.collection_loader._collection_finder import _get_collection_metadata
 from ansible.utils.display import Display
 from ansible.utils.sentinel import Sentinel
 
@@ -375,6 +377,69 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
         and should not be templated during the regular post_validate step.
         '''
         return value
+
+    def _validate_module_defaults(self, attribute, name, value):
+        super(Task, self)._validate_module_defaults(attribute, name, value)
+
+        # Make sure all module_defaults groups that may be used are loaded from collections and cached on the play
+        # module_defaults keys are required to be static now, so this can be done before post validation
+
+        task_module_defaults = getattr(self, name)
+        group_names = []
+        for defaults_dict in task_module_defaults:
+            for group_name in defaults_dict:
+                if not group_name.startswith('group/'):
+                    continue
+                group_names.append(group_name.split('group/')[-1])
+
+        for group_name in group_names:
+            collection_name = '.'.join(group_name.split('.')[0:2])
+            group, actions = self._resolve_group(group_name, collection_name, extending_collection_group=False)
+
+
+    def _resolve_group(self, group, collection_name, extending_collection_group=False):
+        # If the group isn't fully qualified, it's part of the current collection
+        if len(group.split('.')) < 3:
+            group_name = collection_name + '.' + 'group'
+        else:
+            group_name = group
+
+        # If the group isn't part of the current collection, it should only be extending a group in the collection
+        if not group.startswith(collection_name + '.') and not extending_collection_group:
+            # Warn that the collection is defining groups outside of itself? Ignored for now.
+            return group_name, []
+
+        # If the group isn't saved on the play, load it and cache it
+        if group_name in self._parent._play.action_groups:
+            return group_name, self._parent._play.action_groups[group_name]
+
+        # Should we resolve/cache *all* of the collections action_groups?
+        # Or have two different caches for loaded and resolved, so we only need to load and resolve once, but lazily for each?
+        action_groups = _get_collection_metadata(collection_name).get('action_groups', {})
+        resolved_actions = []
+
+        # Ensure each action in the group is the fully qualified resolved action
+        # Collection may not have defined the group with a fully qualified name
+        short_name = group.split(collection_name + '.')[-1]
+        for action in action_groups.get(group, action_groups.get(short_name, [])):
+            if action.startswith('extend_group '):
+                _, group_actions = self._resolve_group(action.split('extend_group ')[-1], collection_name, extending_collection_group=True)
+                resolved_actions.extend(group_actions)
+
+            if len(action.split('.')) == 3:
+                action_name = action
+            else:
+                action_name = collection_name + '.' + action
+
+            context = action_loader.find_plugin_with_context(action_name)
+            if not context.resolved:
+                context = module_loader.find_plugin_with_context(action_name)
+
+            if context.resolved:
+                resolved_actions.append(context.redirect_list[-1])
+
+        self._parent._play.action_groups[group_name] = resolved_actions
+        return group_name, resolved_actions
 
     def get_vars(self):
         all_vars = dict()
