@@ -95,6 +95,7 @@ class Play(Base, Taggable, CollectionSearch):
         self.skip_tags = set(context.CLIARGS.get('skip_tags', []))
 
         self._action_groups = {}
+        self._group_actions = {}
 
     def __repr__(self):
         return self.get_name()
@@ -323,6 +324,7 @@ class Play(Base, Taggable, CollectionSearch):
         data['roles'] = roles
         data['included_path'] = self._included_path
         data['action_groups'] = self._action_groups
+        data['group_actions'] = self._group_actions
 
         return data
 
@@ -331,6 +333,7 @@ class Play(Base, Taggable, CollectionSearch):
 
         self._included_path = data.get('included_path', None)
         self._action_groups = data.get('action_groups', {})
+        self._group_actions = data.get('group_actions', {})
         if 'roles' in data:
             role_data = data.get('roles', [])
             roles = []
@@ -348,4 +351,5 @@ class Play(Base, Taggable, CollectionSearch):
         new_me._included_conditional = self._included_conditional
         new_me._included_path = self._included_path
         new_me._action_groups = self._action_groups
+        new_me._group_actions = self._group_actions
         return new_me
