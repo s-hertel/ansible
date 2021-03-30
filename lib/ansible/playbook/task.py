@@ -37,6 +37,7 @@ from ansible.playbook.loop_control import LoopControl
 from ansible.playbook.role import Role
 from ansible.playbook.taggable import Taggable
 from ansible.utils.collection_loader import AnsibleCollectionConfig
+from ansible.utils.collection_loader._collection_finder import _get_collection_metadata
 from ansible.utils.display import Display
 from ansible.utils.sentinel import Sentinel
 
@@ -106,11 +107,89 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
 
         super(Task, self).__init__()
 
-    def _get_action_group_cache(self):
-        return self._parent._play._action_groups
+    def _validate_module_defaults(self, attribute, name, value):
+        # load, resolve, and cache any action groups the task may use
+        if value is None:
+            return
 
-    def _get_group_action_cache(self):
-        return self._parent._play._group_actions
+        for defaults_dict in value:
+            for defaults_entry, defaults in defaults_dict.items():
+                if not defaults_entry.startswith('group/'):
+                    continue
+
+                group_name = defaults_entry.split('group/')[-1]
+                collection_name = '.'.join(group_name.split('.')[0:2])
+                self._resolve_group(group_name, collection_name)
+
+        # _load_module_defaults in the base class ensures value is a list of dictionaries,
+        # the keys of which are fully qualified action and group names
+        setattr(self, name, value)
+
+    def _resolve_group(self, group, collection_name):
+        # The group should be part of the current collection
+        if not group.startswith(collection_name + '.'):
+            fq_group_name = collection_name + '.' + group
+        else:
+            fq_group_name = group
+
+        # Check if the group has already been resolved and cached
+        if fq_group_name in self._parent._play._group_actions:
+            return fq_group_name, self._parent._play._group_actions[fq_group_name]
+
+        try:
+            if collection_name == 'ansible.legacy':
+                action_groups = _get_collection_metadata('ansible.builtin').get('action_groups', {})
+            else:
+                action_groups = _get_collection_metadata(collection_name).get('action_groups', {})
+        except ValueError:
+            # Don't fail if the collection isn't installed
+            return fq_group_name, []
+
+        # The collection may or may not use the fully qualified name
+        # Don't fail if the group doesn't exist in the collection
+        short_name = fq_group_name.split(collection_name + '.')[-1]
+        action_group = action_groups.get(
+            fq_group_name,
+            action_groups.get(short_name, [])
+        )
+
+        resolved_actions = []
+        for action in action_group:
+            # Check if this is a special 'metadata' entry
+            if isinstance(action, dict) and len(action) == 1 and 'metadata' in action:
+                for extend_group in action['metadata'].get('extend_group', []):
+                    if len(extend_group.split('.')) == 3:
+                        extend_group_collection = '.'.join(extend_group.split('.')[0:2])
+                    else:
+                        extend_group_collection = collection_name
+                    _, group_actions = self._resolve_group(extend_group, extend_group_collection)
+                    resolved_actions.extend(group_actions)
+                continue
+
+            # The collection may or may not use the fully qualified name.
+            # If not, it's part of the current collection.
+            action_names = []
+            if len(action.split('.')) == 3:
+                action_names.append(action)
+            else:
+                action_names.append(collection_name + '.' + action)
+                if collection_name == 'ansible.legacy':
+                    # ansible.legacy is a superset of ansible.builtin
+                    action_names.append('ansible.builtin.' + action)
+
+            for action_name in action_names:
+                resolved_action = self._resolve_action(action_name)
+                if resolved_action:
+                    resolved_actions.append(resolved_action)
+
+        for action in resolved_actions:
+            if action in self._parent._play._action_groups:
+                self._parent._play._action_groups[action].append(fq_group_name)
+            else:
+                self._parent._play._action_groups[action] = [fq_group_name]
+
+        self._parent._play._group_actions[fq_group_name] = resolved_actions
+        return fq_group_name, resolved_actions
 
     def get_path(self):
         ''' return the absolute path of the task with its line number '''
@@ -512,6 +591,17 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
                         value = self._extend_value(value, parent_value, prepend)
                     else:
                         value = parent_value
+
+                    if (
+                        hasattr(self, '_validate_%s' % attr)
+                        # and not hasattr(super(Task, self), '_validate_%s' % attr)
+                        # The second part of this is a safeguard against recursion errors, since the Task method
+                        # could call the super method. We don't actually have anything that does this though.
+                    ):
+                        method = getattr(self, '_validate_%s' % attr)
+                        method(self._valid_attrs[attr], attr, value)
+                        value = self._attributes[attr]
+
         except KeyError:
             pass
 

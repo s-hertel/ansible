@@ -22,7 +22,6 @@ from ansible.module_utils._text import to_text, to_native
 from ansible.parsing.dataloader import DataLoader
 from ansible.playbook.attribute import Attribute, FieldAttribute
 from ansible.plugins.loader import module_loader, action_loader
-from ansible.utils.collection_loader._collection_finder import _get_collection_metadata
 from ansible.utils.display import Display
 from ansible.utils.sentinel import Sentinel
 from ansible.utils.vars import combine_vars, isidentifier, get_unique_id
@@ -301,7 +300,10 @@ class FieldAttributeBase(with_metaclass(BaseMeta, object)):
 
         self._validated = True
 
-    def _validate_module_defaults(self, attribute, name, value):
+    def _load_module_defaults(self, name, value):
+        # Ensure module_defaults is a list of dictionaries, the keys
+        # of which are static and fully resolved action and group names
+
         if value is None:
             return
 
@@ -316,7 +318,6 @@ class FieldAttributeBase(with_metaclass(BaseMeta, object)):
                     "the keys of which must be static action, module, or group names. Only the values may contain "
                     "templates. For example: {'ping': \"{{ ping_defaults }}\"}"
                 )
-
             validated_defaults_dict = {}
             for defaults_entry, defaults in defaults_dict.items():
                 # module_defaults do not use the 'collections' keyword, so actions and
@@ -327,16 +328,8 @@ class FieldAttributeBase(with_metaclass(BaseMeta, object)):
                     group_name = defaults_entry.split('group/')[-1]
                     if len(group_name.split('.')) < 3:
                         group_name = 'ansible.legacy.' + group_name
-
-                    # If we have the actions_group cache (i.e. using a class that inherits
-                    # from Task or Block), we need to also resolve and cache the actions in the group
-                    if self._action_group_cache is not None:
-                        collection_name = '.'.join(group_name.split('.')[0:2])
-                        self._resolve_group(group_name, collection_name)
-
                     defaults_entry = 'group/' + group_name
                     validated_defaults_dict[defaults_entry] = defaults
-
                 else:
                     action_names = []
                     if len(defaults_entry.split('.')) < 3:
@@ -354,83 +347,7 @@ class FieldAttributeBase(with_metaclass(BaseMeta, object)):
 
             validated_module_defaults.append(validated_defaults_dict)
 
-        setattr(self, name, validated_module_defaults)
-
-    @property
-    def _action_group_cache(self):
-        if hasattr(self, '_get_action_group_cache'):
-            return self._get_action_group_cache()
-
-    @property
-    def _group_action_cache(self):
-        if hasattr(self, '_get_group_action_cache'):
-            return self._get_group_action_cache()
-
-    def _resolve_group(self, group, collection_name):
-        # The group should be part of the current collection
-        if not group.startswith(collection_name + '.'):
-            fq_group_name = collection_name + '.' + group
-        else:
-            fq_group_name = group
-
-        # Check if the group has already been resolved and cached
-        if fq_group_name in self._group_action_cache:
-            return fq_group_name, self._group_action_cache[fq_group_name]
-
-        try:
-            if collection_name == 'ansible.legacy':
-                action_groups = _get_collection_metadata('ansible.builtin').get('action_groups', {})
-            else:
-                action_groups = _get_collection_metadata(collection_name).get('action_groups', {})
-        except ValueError:
-            # Don't fail if the collection isn't installed
-            return fq_group_name, []
-
-        # The collection may or may not use the fully qualified name
-        # Don't fail if the group doesn't exist in the collection
-        short_name = fq_group_name.split(collection_name + '.')[-1]
-        action_group = action_groups.get(
-            fq_group_name,
-            action_groups.get(short_name, [])
-        )
-
-        resolved_actions = []
-        for action in action_group:
-            # Check if this is a special 'metadata' entry
-            if isinstance(action, dict) and len(action) == 1 and 'metadata' in action:
-                for extend_group in action['metadata'].get('extend_group', []):
-                    if len(extend_group.split('.')) == 3:
-                        extend_group_collection = '.'.join(extend_group.split('.')[0:2])
-                    else:
-                        extend_group_collection = collection_name
-                    _, group_actions = self._resolve_group(extend_group, extend_group_collection)
-                    resolved_actions.extend(group_actions)
-                continue
-
-            # The collection may or may not use the fully qualified name.
-            # If not, it's part of the current collection.
-            action_names = []
-            if len(action.split('.')) == 3:
-                action_names.append(action)
-            else:
-                action_names.append(collection_name + '.' + action)
-                if collection_name == 'ansible.legacy':
-                    # ansible.legacy is a superset of ansible.builtin
-                    action_names.append('ansible.builtin.' + action)
-
-            for action_name in action_names:
-                resolved_action = self._resolve_action(action_name)
-                if resolved_action:
-                    resolved_actions.append(resolved_action)
-
-        for action in resolved_actions:
-            if action in self._action_group_cache:
-                self._action_group_cache[action].append(fq_group_name)
-            else:
-                self._action_group_cache[action] = [fq_group_name]
-
-        self._group_action_cache[fq_group_name] = resolved_actions
-        return fq_group_name, resolved_actions
+        return validated_module_defaults
 
     def _resolve_action(self, action_name):
         context = action_loader.find_plugin_with_context(action_name)
