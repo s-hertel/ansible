@@ -494,6 +494,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
 
         # include_params are 'inline variables' in role invocation. - {role: x, varname: value}
         if include_params:
+            # TODO: add deprecation notice
             all_vars = combine_vars(all_vars, self.get_role_params(dep_chain=dep_chain))
 
         # these come from vars: keyword in role invocation. - {role: x, vars: {varname: value}}
