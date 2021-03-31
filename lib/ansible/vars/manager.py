@@ -205,7 +205,8 @@ class VariableManager:
                 # first we compile any vars specified in defaults/main.yml
                 # for all roles within the specified play
                 for role in play.get_roles():
-                    if role.public:
+                    # role from roles or include_role+public or import_role and completed
+                    if not role.from_include or role.public or (role.static and role._completed.get(to_text(host), False)):
                         all_vars = _combine_and_track(all_vars, role.get_default_vars(), "role '%s' defaults" % role.name)
 
         if task:
@@ -390,7 +391,7 @@ class VariableManager:
             if not C.DEFAULT_PRIVATE_ROLE_VARS:
                 # TODO: check per role privacy?
                 for role in play.get_roles():
-                    if role.public:
+                    if not role.from_include or role.public or (role.static and role._completed.get(to_text(host), False)):
                         all_vars = _combine_and_track(all_vars, role.get_vars(include_params=False, only_exports=True), "role '%s' exported vars" % role.name)
 
         # next, we merge in the vars from the role, which will specifically
@@ -412,6 +413,7 @@ class VariableManager:
 
         # next, we merge in role params and task include params
         if task:
+            # BCS NOTE: can remove here, were included above, this does change precedence
             if task._role:
                 all_vars = _combine_and_track(all_vars, task._role.get_role_params(task.get_dep_chain()), "role '%s' params" % task._role.name)
 

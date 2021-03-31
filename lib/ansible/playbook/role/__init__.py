@@ -106,6 +106,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         self._role_params = dict()
         self._loader = None
         self.public = public
+        self.static = True
 
         self._metadata = None
         self._play = play

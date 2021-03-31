@@ -121,6 +121,10 @@ class IncludeRole(TaskInclude):
 
         ir = IncludeRole(block, role, task_include=task_include).load_data(data, variable_manager=variable_manager, loader=loader)
 
+        # dyanmic role!
+        if ir.action in C._ACTION_INCLUDE_ROLE:
+            ir.static = False
+
         # Validate options
         my_arg_names = frozenset(ir.args.keys())
 
@@ -129,6 +133,7 @@ class IncludeRole(TaskInclude):
         if ir._role_name is None:
             raise AnsibleParserError("'name' is a required field for %s." % ir.action, obj=data)
 
+        # public is only valid argument for includes, imports are always 'public' (after they run)
         if 'public' in ir.args and ir.action not in C._ACTION_INCLUDE_ROLE:
             raise AnsibleParserError('Invalid options for %s: public' % ir.action, obj=data)
 
@@ -137,7 +142,7 @@ class IncludeRole(TaskInclude):
         if bad_opts:
             raise AnsibleParserError('Invalid options for %s: %s' % (ir.action, ','.join(list(bad_opts))), obj=data)
 
-        # build options for role includes
+        # build options for role include/import tasks
         for key in my_arg_names.intersection(IncludeRole.FROM_ARGS):
             from_key = key.replace('_from', '')
             args_value = ir.args.get(key)
@@ -145,6 +150,7 @@ class IncludeRole(TaskInclude):
                 raise AnsibleParserError('Expected a string for %s but got %s instead' % (key, type(args_value)))
             ir._from_files[from_key] = basename(args_value)
 
+        # apply is only valid for includes, not imports as they inherit directly
         apply_attrs = ir.args.get('apply', {})
         if apply_attrs and ir.action not in C._ACTION_INCLUDE_ROLE:
             raise AnsibleParserError('Invalid options for %s: apply' % ir.action, obj=data)
