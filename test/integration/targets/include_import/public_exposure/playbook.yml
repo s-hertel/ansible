@@ -18,7 +18,7 @@
     - assert:
         that:
           - static_vars_var is defined
-          - static_task_var is defined
+          - static_tasks_var is defined
           - static_defaults_var is defined
           - static_tasks_var == 'static_tasks'
           - static_defaults_var == 'static_defaults'
