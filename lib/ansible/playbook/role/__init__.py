@@ -469,19 +469,26 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         params = combine_vars(params, self._role_params)
         return params
 
-    def get_vars(self, dep_chain=None, include_params=True):
-        dep_chain = [] if dep_chain is None else dep_chain
+    def _get_vars(self, recurse_dependencies=False, include_params=True):
+        all_vars = dict()
 
-        all_vars = self.get_inherited_vars(dep_chain)
-
-        for dep in self.get_all_dependencies():
-            all_vars = combine_vars(all_vars, dep.get_vars(include_params=include_params))
+        if recurse_dependencies:
+            for dep in self.get_all_dependencies():
+                all_vars = combine_vars(all_vars, dep._get_vars(recurse_dependencies=True, include_params=include_params))
 
         all_vars = combine_vars(all_vars, self.vars)
         all_vars = combine_vars(all_vars, self._role_vars)
         if include_params:
             all_vars = combine_vars(all_vars, self.get_role_params(dep_chain=dep_chain))
+        return all_vars
 
+    def get_vars(self, dep_chain=None, include_params=True):
+        dep_chain = [] if dep_chain is None else dep_chain
+
+        all_vars = dict()
+        for parent in dep_chain:
+            all_vars = combine_vars(all_vars, parent._get_vars(include_params=include_params))
+        all_vars = combine_vars(all_vars, self._get_vars(recurse_dependencies=True, include_params=include_params))
         return all_vars
 
     def get_direct_dependencies(self):
