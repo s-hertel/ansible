@@ -1,6 +1,6 @@
 - name: play and roles
   hosts: localhost
-  gather_facts: valse
+  gather_facts: false
   vars_files:
     - vars/play.yml
   roles:
