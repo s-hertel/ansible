@@ -16,3 +16,7 @@ set -eux
 
 # ensure role data is merged correctly
 ansible-playbook data_integrity.yml -i ../../inventory "$@"
+
+
+# ensure vars scope is correct
+ansible-playbook vars_scope.yml -i ../../inventory "$@"

@@ -3,5 +3,5 @@
 
 - assert:
     that:
-        - item in vars and item in defined or item not in vars and item not in defined # and vars[item] == defined[item]
+        - (item in vars and item in defined and vars[item] == defined[item]) or (item not in vars and item not in defined)
   loop: '{{possible_vars}}'
