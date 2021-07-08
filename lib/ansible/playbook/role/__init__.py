@@ -450,14 +450,15 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         default_vars = combine_vars(default_vars, self._default_vars)
         return default_vars
 
-    def get_inherited_vars(self, dep_chain=None):
+    def get_inherited_vars(self, dep_chain=None, only_exports=False):
         dep_chain = [] if dep_chain is None else dep_chain
 
         inherited_vars = dict()
 
         if dep_chain:
             for parent in dep_chain:
-                inherited_vars = combine_vars(inherited_vars, parent.vars)
+                if not only_exports:
+                    inherited_vars = combine_vars(inherited_vars, parent.vars)
                 inherited_vars = combine_vars(inherited_vars, parent._role_vars)
         return inherited_vars
 
@@ -478,7 +479,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
 
         # get role_vars: from parent objects
         # TODO: is this right precedence for inherited role_vars?
-        all_vars = self.get_inherited_vars(dep_chain)
+        all_vars = self.get_inherited_vars(dep_chain, only_exports=only_exports)
 
         # get exported variables from meta/dependencies
         seen = set()
