@@ -9,3 +9,9 @@
     tasks_from: evaluation_time
   tags:
     - evaluation_time
+
+- import_role:
+    name: template_handler_names
+    tasks_from: untemplated_notify
+  tags:
+    - untemplated_notify

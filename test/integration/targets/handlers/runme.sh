@@ -114,3 +114,8 @@ grep out.txt -e "The requested handler 'handler name with myvar' was not found"
 grep out.txt -e "\[WARNING\]: Unable to template handler name 'handler name with {{ test_var }}'"
 [ "$(grep out.txt -ce 'handler ran')" = "0" ]
 [ "$(grep out.txt -ce 'handler with var ran')" = "0" ]
+
+# Test the handler is found when the variable is undefined and an untemplated string is used
+ansible-playbook 58841.yml "$@" --tags untemplated_notify 2>&1 | tee out.txt ; cat out.txt
+[ "$(grep out.txt -ce 'handler ran')" = "0" ]
+[ "$(grep out.txt -ce 'handler with var ran')" = "1" ]

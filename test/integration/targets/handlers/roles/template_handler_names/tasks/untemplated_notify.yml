@@ -1,0 +1,5 @@
+- debug: msg='notify handler with variable in name'
+  notify: !unsafe "handler name with {{ test_var }}"
+  changed_when: True
+  tags:
+    - untemplated_notify

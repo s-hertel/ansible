@@ -515,6 +515,18 @@ class StrategyBase:
                             if handler_name in candidates:
                                 return handler_task
                         except (UndefinedError, AnsibleUndefinedVariable) as e:
+                            # If the handler contains an undefined variable, look for an
+                            # untemplated match.
+                            candidates = (
+                                handler_task.name,
+                                handler_task.get_name(include_role_fqcn=False),
+                                handler_task.get_name(include_role_fqcn=True),
+                            )
+                            if handler_name in candidates:
+                                return handler_task
+
+                            # No templated/untemplated match was found.
+                            # If the handler has no `listen` field it's unusable.
                             # We skip this handler due to the fact that it may be using
                             # a variable in the name that was conditionally included via
                             # set_fact or some other method, and we don't want to error
@@ -1015,7 +1027,7 @@ class StrategyBase:
                 self.add_tqm_variables(task_vars, play=iterator._play)
                 templar = Templar(loader=self._loader, variables=task_vars)
                 if not handler.cached_name:
-                    handler.name = templar.template(handler.name)
+                    handler.name = templar.template(handler.name, fail_on_undefined=False)
                     handler.cached_name = True
 
                 self._queue_task(host, handler, task_vars, play_context)
