@@ -44,7 +44,7 @@ class IncludeRole(TaskInclude):
 
     BASE = ('name', 'role')  # directly assigned
     FROM_ARGS = ('tasks_from', 'vars_from', 'defaults_from', 'handlers_from')  # used to populate from dict in role
-    OTHER_ARGS = ('apply', 'public', 'allow_duplicates', 'rolespec_validate')  # assigned to matching property
+    OTHER_ARGS = ('apply', 'public', 'allow_duplicates', 'rolespec_validate', 'prefer_inherited_vars')  # assigned to matching property
     VALID_ARGS = tuple(frozenset(BASE + FROM_ARGS + OTHER_ARGS))  # all valid args
 
     # =================================================================================
@@ -63,6 +63,7 @@ class IncludeRole(TaskInclude):
         self._parent_role = role
         self._role_name = None
         self._role_path = None
+        self.prefer_inherited_vars = None
 
     def get_name(self):
         ''' return the name of the task '''
@@ -76,7 +77,14 @@ class IncludeRole(TaskInclude):
         else:
             myplay = play
 
-        ri = RoleInclude.load(self._role_name, play=myplay, variable_manager=variable_manager, loader=loader, collection_list=self.collections)
+        ri = RoleInclude.load(
+            self._role_name,
+            play=myplay,
+            variable_manager=variable_manager,
+            loader=loader,
+            collection_list=self.collections,
+            prefer_inherited_vars=self.prefer_inherited_vars
+        )
         ri.vars.update(self.vars)
 
         # build role
@@ -165,6 +173,7 @@ class IncludeRole(TaskInclude):
         new_me._parent_role = self._parent_role
         new_me._role_name = self._role_name
         new_me._role_path = self._role_path
+        new_me.prefer_inherited_vars = self.prefer_inherited_vars
 
         return new_me
 

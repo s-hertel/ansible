@@ -80,6 +80,8 @@ class RoleMetadata(Base, CollectionSearch):
                     def_parsed = RoleRequirement.role_yaml_parse(role_def)
                     if def_parsed.get('name'):
                         role_def['name'] = def_parsed['name']
+                    if def_parsed.get('prefer_inherited_vars'):
+                        role_def['prefer_inherited_vars'] = def_parsed['prefer_inherited_vars']
                     roles.append(role_def)
                 except AnsibleError as exc:
                     raise AnsibleParserError(to_native(exc), obj=role_def, orig_exc=exc)

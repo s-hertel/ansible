@@ -156,6 +156,8 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
                 params['from_files'] = from_files
             if role_include.vars:
                 params['vars'] = role_include.vars
+            if role_include._prefer_inherited_vars is not None:
+                params['prefer_inherited_vars'] = role_include._prefer_inherited_vars
 
             params['from_include'] = from_include
 
@@ -192,6 +194,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         self._role_params = role_include.get_role_params()
         self._variable_manager = role_include.get_variable_manager()
         self._loader = role_include.get_loader()
+        self._prefer_inherited_vars = role_include._prefer_inherited_vars
 
         if parent_role:
             self.add_parent(parent_role)
@@ -443,10 +446,28 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         default_vars = dict()
         for dep in self.get_all_dependencies():
             default_vars = combine_vars(default_vars, dep.get_default_vars())
+        if self._prefer_inherited_vars:
+            default_vars = combine_vars(default_vars, self._default_vars)
         if dep_chain:
+            if self._prefer_inherited_vars:
+                precedence = []
+                streak = []
+                for dep in dep_chain:
+                    if dep._prefer_inherited_vars:
+                        # reversing the list
+                        streak.insert(0, dep)
+                    else:
+                        # usual precedence
+                        streak.append(dep)
+
+                    if streak and streak[-1]._prefer_inherited_vars != dep._prefer_inherited_vars:
+                        precedence.extend(streak)
+                        streak = []
+                dep_chain = precedence
             for parent in dep_chain:
                 default_vars = combine_vars(default_vars, parent._default_vars)
-        default_vars = combine_vars(default_vars, self._default_vars)
+        if not self._prefer_inherited_vars:
+            default_vars = combine_vars(default_vars, self._default_vars)
         return default_vars
 
     def get_inherited_vars(self, dep_chain=None):
@@ -473,7 +494,11 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
     def get_vars(self, dep_chain=None, include_params=True):
         dep_chain = [] if dep_chain is None else dep_chain
 
-        all_vars = self.get_inherited_vars(dep_chain)
+        if self._prefer_inherited_vars:
+            all_vars = {}
+            dep_chain = dep_chain[::-1]
+        else:
+            all_vars = self.get_inherited_vars(dep_chain)
 
         for dep in self.get_all_dependencies():
             all_vars = combine_vars(all_vars, dep.get_vars(include_params=include_params))
@@ -482,6 +507,9 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         all_vars = combine_vars(all_vars, self._role_vars)
         if include_params:
             all_vars = combine_vars(all_vars, self.get_role_params(dep_chain=dep_chain))
+
+        if self._prefer_inherited_vars:
+            all_vars = combine_vars(all_vars, self.get_inherited_vars(dep_chain))
 
         return all_vars
 
@@ -602,6 +630,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         res['_default_vars'] = self._default_vars
         res['_had_task_run'] = self._had_task_run.copy()
         res['_completed'] = self._completed.copy()
+        res['_prefer_inherited_vars'] = self._prefer_inherited_vars
 
         if self._metadata:
             res['_metadata'] = self._metadata.serialize()
@@ -627,6 +656,7 @@ class Role(Base, Conditional, Taggable, CollectionSearch):
         self._default_vars = data.get('_default_vars', dict())
         self._had_task_run = data.get('_had_task_run', dict())
         self._completed = data.get('_completed', dict())
+        self._prefer_inherited_vars = data.get('_prefer_inherited_vars')
 
         if include_deps:
             deps = []

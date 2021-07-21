@@ -45,7 +45,7 @@ class RoleDefinition(Base, Conditional, Taggable, CollectionSearch):
 
     _role = FieldAttribute(isa='string')
 
-    def __init__(self, play=None, role_basedir=None, variable_manager=None, loader=None, collection_list=None):
+    def __init__(self, play=None, role_basedir=None, variable_manager=None, loader=None, collection_list=None, prefer_inherited_vars=None):
 
         super(RoleDefinition, self).__init__()
 
@@ -58,6 +58,7 @@ class RoleDefinition(Base, Conditional, Taggable, CollectionSearch):
         self._role_basedir = role_basedir
         self._role_params = dict()
         self._collection_list = collection_list
+        self._prefer_inherited_vars = prefer_inherited_vars
 
     # def __repr__(self):
     #     return 'ROLEDEF: ' + self._attributes.get('role', '<no name set>')
