@@ -266,11 +266,13 @@ class StrategyModule(StrategyBase):
                     task_action = templar.template(task.action)
 
                     try:
-                        action = action_loader.get(task_action, class_only=True, collection_list=task.collections)
+                        action, context = action_loader.get_with_context(task_action, class_only=True, collection_list=task.collections)
                     except KeyError:
                         # we don't care here, because the action may simply not have a
                         # corresponding action plugin
                         action = None
+                    else:
+                        task.resolved_action = context.resolved_fqcn
 
                     if task_action in C._ACTION_META:
                         # for the linear strategy, we run meta tasks just once and for

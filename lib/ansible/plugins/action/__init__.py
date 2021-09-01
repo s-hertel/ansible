@@ -18,7 +18,7 @@ from abc import ABCMeta, abstractmethod
 
 from ansible import constants as C
 from ansible.errors import AnsibleError, AnsibleConnectionFailure, AnsibleActionSkip, AnsibleActionFail, AnsibleAuthenticationFailure
-from ansible.executor.module_common import modify_module
+from ansible.executor.module_common import modify_module, get_action_args_with_defaults
 from ansible.executor.interpreter_discovery import discover_interpreter, InterpreterDiscoveryRequiredError
 from ansible.module_utils.common._collections_compat import Sequence
 from ansible.module_utils.json_utils import _filter_non_json_lines
@@ -204,6 +204,15 @@ class ActionBase(with_metaclass(ABCMeta, object)):
                     target_module_name = result.redirect_list[-1]
 
                     raise AnsibleError("The module {0} was redirected to {1}, which could not be loaded.".format(module_name, target_module_name))
+            else:
+                self._task.resolved_action = result.resolved_fqcn
+                module_args = get_action_args_with_defaults(
+                    result.resolved_fqcn,
+                    module_args,
+                    self._task.module_defaults,
+                    self._templar,
+                    action_groups=self._task._parent._play._action_groups
+                )
 
             module_path = result.plugin_resolved_path
             if module_path:

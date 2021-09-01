@@ -1399,6 +1399,9 @@ def get_action_args_with_defaults(action, args, defaults, templar, redirected_na
     else:
         resolved_action_name = action
 
+    if resolved_action_name is None:
+        return args
+
     if redirected_names is not None:
         msg = (
             "Finding module_defaults for the action %s. "
