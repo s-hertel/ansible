@@ -157,13 +157,16 @@ class StrategyModule(StrategyBase):
                         # pop the task, mark the host blocked, and queue it
                         self._blocked_hosts[host_name] = True
                         (state, task) = iterator.get_next_task_for_host(host)
+                        action_name = templar.template(task.action)
 
                         try:
-                            action = action_loader.get(task.action, class_only=True, collection_list=task.collections)
+                            action, context = action_loader.get_with_context(action_name, class_only=True, collection_list=task.collections)
                         except KeyError:
                             # we don't care here, because the action may simply not have a
                             # corresponding action plugin
                             action = None
+                        else:
+                            task.resolved_action = context.resolved_fqcn
 
                         try:
                             task.name = to_text(templar.template(task.name, fail_on_undefined=False), nonstring='empty')
