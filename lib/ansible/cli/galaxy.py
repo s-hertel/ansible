@@ -385,6 +385,8 @@ class GalaxyCLI(CLI):
                                         'canonical manifest hash.')
         verify_parser.add_argument('-r', '--requirements-file', dest='requirements',
                                    help='A file containing a list of collections to be verified.')
+        verify_parser.add_argument('--keyring', dest='keyring', default='~/.ansible/keyring.kbx',
+                                   help='The keyring used during signature verification')
 
     def add_install_options(self, parser, parents=None):
         galaxy_type = 'collection' if parser.metavar == 'COLLECTION_ACTION' else 'role'
@@ -1103,6 +1105,7 @@ class GalaxyCLI(CLI):
         collections = context.CLIARGS['args']
         search_paths = context.CLIARGS['collections_path']
         ignore_errors = context.CLIARGS['ignore_errors']
+        keyring = context.CLIARGS['keyring']
         local_verify_only = context.CLIARGS['offline']
         requirements_file = context.CLIARGS['requirements']
 
@@ -1118,6 +1121,7 @@ class GalaxyCLI(CLI):
             self.api_servers, ignore_errors,
             local_verify_only=local_verify_only,
             artifacts_manager=artifacts_manager,
+            keyring=keyring,
         )
 
         if any(result for result in results if not result.success):

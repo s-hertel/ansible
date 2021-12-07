@@ -13,16 +13,18 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
+import textwrap
 import threading
 import time
 import yaml
 
 from collections import namedtuple
 from contextlib import contextmanager
-from ansible.module_utils.compat.version import LooseVersion
+from dataclasses import dataclass, fields as dc_fields
 from hashlib import sha256
 from io import BytesIO
 from itertools import chain
@@ -116,6 +118,7 @@ from ansible.galaxy.dependency_resolution.errors import (
     CollectionDependencyInconsistentCandidate,
 )
 from ansible.galaxy.dependency_resolution.versioning import meets_requirements
+from ansible.module_utils.compat.version import LooseVersion
 from ansible.module_utils.six import raise_from
 from ansible.module_utils._text import to_bytes, to_native, to_text
 from ansible.module_utils.common.yaml import yaml_dump
@@ -132,6 +135,202 @@ MANIFEST_FILENAME = 'MANIFEST.json'
 
 ModifiedContent = namedtuple('ModifiedContent', ['filename', 'expected', 'installed'])
 
+error_map = {}
+
+@dataclass
+class GpgBaseError(Exception):
+    status: str
+
+    def __post_init__(self):
+        for field in dc_fields(self):
+            setattr(self, field.name, field.type(getattr(self, field.name)))
+
+
+@dataclass
+class GpgExpSig(GpgBaseError):
+    keyid: str
+    username: str
+
+    @staticmethod
+    def explain():
+        return 'The signature with the keyid is good, but the signature is expired'
+error_map['EXPSIG'] = GpgExpSig
+
+
+@dataclass
+class GpgExpKeySig(GpgBaseError):
+    keyid: str
+    username: str
+
+    @staticmethod
+    def explain():
+        return 'The signature with the keyid is good, but the signature was made by an expired key'
+error_map['EXPKEYSIG'] = GpgExpKeySig
+
+
+@dataclass
+class GpgRevKeySig(GpgBaseError):
+    keyid: str
+    username: str
+
+    @staticmethod
+    def explain():
+        return 'The signature with the keyid is good, but the signature was made by a revoked key'
+error_map['REVKEYSIG'] = GpgRevKeySig
+
+
+@dataclass
+class GpgBadSig(GpgBaseError):
+    keyid: str
+    username: str
+
+    @staticmethod
+    def explain():
+        return 'The signature with the keyid has not been verified okay'
+error_map['BADSIG'] = GpgBadSig
+
+
+@dataclass
+class GpgErrSig(GpgBaseError):
+    keyid: str
+    pkalgo: int
+    hashalgo: int
+    sig_class: str
+    time: int
+    rc: int
+    fpr: str
+
+    @staticmethod
+    def explain():
+        return (
+            'It was not possible to check the signature.  This may be caused by '
+            'a missing public key or an unsupported algorithm.  A RC of 4 '
+            'indicates unknown algorithm, a 9 indicates a missing public '
+            'key.'
+        )
+error_map['ERRSIG'] = GpgErrSig
+
+
+@dataclass
+class GpgNoPubkey(GpgBaseError):
+    keyid: str
+
+    @staticmethod
+    def explain():
+        return 'The public key is not available'
+error_map['NO_PUBKEY'] = GpgNoPubkey
+
+
+@dataclass
+class GpgMissingPassPhrase(GpgBaseError):
+    @staticmethod
+    def explain():
+        return 'No passphrase was supplied'
+error_map['MISSING_PASSPHRASE'] = GpgMissingPassPhrase
+
+
+@dataclass
+class GpgBadPassphrase(GpgBaseError):
+    keyid: str
+
+    @staticmethod
+    def explain():
+        return 'The supplied passphrase was wrong or not given'
+error_map['BAD_PASSPHRASE'] = GpgBadPassphrase
+
+
+@dataclass
+class GpgNoData(GpgBaseError):
+    what: str
+
+    @staticmethod
+    def explain():
+        return textwrap.dedent('''
+            No data has been found.  Codes for WHAT are:
+            - 1 :: No armored data.
+            - 2 :: Expected a packet but did not found one.
+            - 3 :: Invalid packet found, this may indicate a non OpenPGP
+                   message.
+            - 4 :: Signature expected but not found
+        ''').strip()
+error_map['NODATA'] = GpgNoData
+
+
+@dataclass
+class GpgUnexpected(GpgBaseError):
+    what: str
+
+    @staticmethod
+    def explain():
+        return textwrap.dedent('''
+            No data has been found.  Codes for WHAT are:
+            - 1 :: No armored data.
+            - 2 :: Expected a packet but did not found one.
+            - 3 :: Invalid packet found, this may indicate a non OpenPGP
+                   message.
+            - 4 :: Signature expected but not found
+        ''').strip()
+error_map['UNEXPECTED'] = GpgUnexpected
+
+
+@dataclass
+class GpgError(GpgBaseError):
+    location: str
+    code: int
+    more: str
+
+    @staticmethod
+    def explain():
+        return 'This is a generic error status message, it might be followed by error location specific data'
+error_map['ERROR'] = GpgError
+
+
+@dataclass
+class GpgFailure(GpgBaseError):
+    location: str
+    code: int
+
+    @staticmethod
+    def explain():
+        return 'This is the counterpart to SUCCESS and used to indicate a program failure'
+error_map['FAILURE'] = GpgFailure
+
+
+@dataclass
+class GpgBadArmor(GpgBaseError):
+    @staticmethod
+    def explain():
+        return 'The ASCII armor is corrupted'
+error_map['BADARMOR'] = GpgBadArmor
+
+
+@dataclass
+class GpgKeyExpired(GpgBaseError):
+    timestamp: int
+
+    @staticmethod
+    def explain():
+        return 'The key has expired'
+error_map['KEYEXPIRED'] = GpgKeyExpired
+
+
+@dataclass
+class GpgKeyRevoked(GpgBaseError):
+    @staticmethod
+    def explain():
+        return 'The used key has been revoked by its owner'
+error_map['KEYREVOKED'] = GpgKeyRevoked
+
+
+@dataclass
+class GpgNoSecKey(GpgBaseError):
+    keyid: str
+
+    @staticmethod
+    def explain():
+        return 'The secret key is not available'
+error_map['NO_SECKEY'] = GpgNoSecKey
+
 
 # FUTURE: expose actual verify result details for a collection on this object, maybe reimplement as dataclass on py3.8+
 class CollectionVerifyResult:
@@ -142,8 +341,8 @@ class CollectionVerifyResult:
 
 def verify_local_collection(
         local_collection, remote_collection,
-        artifacts_manager,
-):  # type: (Candidate, Optional[Candidate], ConcreteArtifactsManager) -> CollectionVerifyResult
+        artifacts_manager, keyring,
+):  # type: (Candidate, Optional[Candidate], ConcreteArtifactsManager, str) -> CollectionVerifyResult
     """Verify integrity of the locally installed collection.
 
     :param local_collection: Collection being checked.
@@ -166,30 +365,15 @@ def verify_local_collection(
     modified_content = []  # type: List[ModifiedContent]
 
     verify_local_only = remote_collection is None
+
+    get_json_from_validation_source = functools.partial(_get_json_from_installed_dir, b_collection_path)
+    get_hash_from_validation_source = functools.partial(_get_file_hash, b_collection_path)
+
     if verify_local_only:
-        # partial away the local FS detail so we can just ask generically during validation
-        get_json_from_validation_source = functools.partial(_get_json_from_installed_dir, b_collection_path)
-        get_hash_from_validation_source = functools.partial(_get_file_hash, b_collection_path)
-
-        # since we're not downloading this, just seed it with the value from disk
+        # Just verify the internal consistency of the MANIFEST.json since we're not downloading the signature
         manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
+        _verify_file_hash(b_collection_path, MANIFEST_FILENAME, manifest_hash, modified_content)
     else:
-        # fetch remote
-        b_temp_tar_path = (  # NOTE: AnsibleError is raised on URLError
-            artifacts_manager.get_artifact_path
-            if remote_collection.is_concrete_artifact
-            else artifacts_manager.get_galaxy_artifact_path
-        )(remote_collection)
-
-        display.vvv(
-            u"Remote collection cached as '{path!s}'".format(path=to_text(b_temp_tar_path))
-        )
-
-        # partial away the tarball details so we can just ask generically during validation
-        get_json_from_validation_source = functools.partial(_get_json_from_tar_file, b_temp_tar_path)
-        get_hash_from_validation_source = functools.partial(_get_tar_file_hash, b_temp_tar_path)
-
-        # Compare installed version versus requirement version
         if local_collection.ver != remote_collection.ver:
             err = (
                 "{local_fqcn!s} has the version '{local_ver!s}' but "
@@ -203,13 +387,25 @@ def verify_local_collection(
             result.success = False
             return result
 
-        # Verify the downloaded manifest hash matches the installed copy before verifying the file manifest
-        manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
-        _verify_file_hash(b_collection_path, MANIFEST_FILENAME, manifest_hash, modified_content)
+        b_manifest_file = os.path.join(b_collection_path, b'MANIFEST.json')
 
-    display.display('MANIFEST.json hash: {manifest_hash}'.format(manifest_hash=manifest_hash))
+        # FIXME: download signature from galaxy endpoint /v3/collections/{namespace}/{name}/versions/{version}
+        # get from Candidate? remote_collection.signatures
+        api_signatures = [os.path.join(b_collection_path, b'MANIFEST.json.asc')]
+
+        # FIXME: user-provided signatures should be URLs
+        requirement_signatures = local_collection.signatures
+
+        for detached_sig in requirement_signatures + api_signatures:
+            b_detached_signature = to_bytes(detached_sig, errors='surrogate_or_strict')
+            result.success = verify_file_signature(b_manifest_file, b_detached_signature, keyring)
+        if not result.success:
+            return result
 
     manifest = get_json_from_validation_source(MANIFEST_FILENAME)
+    manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
+
+    display.display(f'MANIFEST.json hash: {manifest_hash}')
 
     # Use the manifest to verify the file manifest checksum
     file_manifest_data = manifest['file_manifest_file']
@@ -220,11 +416,47 @@ def verify_local_collection(
     _verify_file_hash(b_collection_path, file_manifest_filename, expected_hash, modified_content)
     file_manifest = get_json_from_validation_source(file_manifest_filename)
 
+    collection_dirs = set()
+    collection_files = {
+        os.path.join(b_collection_path, b'MANIFEST.json'),
+        os.path.join(b_collection_path, b'FILES.json'),
+    }
+
     # Use the file manifest to verify individual file checksums
     for manifest_data in file_manifest['files']:
+        name = manifest_data['name']
+
         if manifest_data['ftype'] == 'file':
+            collection_files.add(
+                os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
+            )
+
             expected_hash = manifest_data['chksum_%s' % manifest_data['chksum_type']]
-            _verify_file_hash(b_collection_path, manifest_data['name'], expected_hash, modified_content)
+            _verify_file_hash(b_collection_path, name, expected_hash, modified_content)
+
+        if manifest_data['ftype'] == 'dir':
+            collection_dirs.add(
+                os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
+            )
+
+    # Find any paths not in the FILES.json
+    for root, dirs, files in os.walk(b_collection_path):
+        for name in files:
+            full_path = os.path.join(root, name)
+            path = to_text(full_path[len(b_collection_path) + 1::], errors='surrogate_or_strict')
+
+            if full_path not in collection_files:
+                modified_content.append(
+                    ModifiedContent(filename=path, expected='the file does not exist', installed='the file exists')
+                )
+        for name in dirs:
+            full_path = os.path.join(root, name)
+            path = to_text(full_path[len(b_collection_path) + 1::], errors='surrogate_or_strict')
+
+            if full_path not in collection_dirs:
+                modified_content.append(
+                    ModifiedContent(filename=path, expected='the directory does not exist', installed='the directory exists')
+                )
 
     if modified_content:
         result.success = False
@@ -244,6 +476,93 @@ def verify_local_collection(
         )
 
     return result
+
+
+def verify_file_signature(b_manifest_file, b_detached_signature, keyring):
+    gpg_result, rc = run_gpg_verify(b_manifest_file, b_detached_signature, keyring)
+
+    verify_failed = ""
+    for error in parse_gpg_result(gpg_result, rc):
+        if not verify_failed:
+            signature = to_text(b_detached_signature, errors='surrogate_or_strict')
+            verify_failed += f"Signature verification failed ({signature}):"
+        verify_failed += f'\n      * {error.explain()}'
+
+    if verify_failed:
+        display.display(verify_failed)
+        return False
+    elif rc:
+        display.display(f"Unexpected error: GnuPG signature verification failed with the return code {rc} and output {gpc_verify_result}")
+        return False
+    else:
+        display.display("Signature verification succeeded")
+        return True
+
+
+
+def run_gpg_verify(b_manifest_file, b_signature_file, keyring):
+    status_fd_read, status_fd_write = os.pipe()
+
+    cmd = [
+        'gpg',
+        f'--status-fd={status_fd_write}',
+        '--verify',
+        '--batch',
+        '--no-tty',
+        '--no-default-keyring',
+        f'--keyring={keyring}',
+        b_signature_file,
+        b_manifest_file,
+    ]
+
+    try:
+        p = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            pass_fds=(status_fd_write,),
+        )
+        stdout, stderr = p.communicate()
+    except subprocess.SubprocessError:
+        cmd_str = ' '.join([to_text(arg) for arg in cmd])
+        display.error(f"Failed during GnuPG verification with command '{cmd_str}':\n{err}")
+        p = None
+    finally:
+        os.close(status_fd_write)
+        if p is None:
+            return
+
+    rc = p.returncode
+    with os.fdopen(status_fd_read) as f:
+        return f.read(), p.returncode
+
+
+def parse_gpg_result(status_out, rc):
+    errors = []
+    for line in status_out.splitlines():
+        if not line:
+            continue
+        try:
+            _, status, remainder = line.split(None, 2)
+        except ValueError:
+            _, status = line.split(None, 1)
+            remainder = None
+        try:
+            cls = error_map[status]
+        except KeyError:
+            continue
+
+        fields = [status]
+        if remainder:
+            fields.extend(
+                remainder.split(
+                    None,
+                    len(dc_fields(cls)) - 2
+                )
+            )
+
+        yield cls(*fields)
 
 
 def build_collection(u_collection_path, u_output_path, force):
@@ -590,6 +909,7 @@ def verify_collections(
         ignore_errors,  # type: bool
         local_verify_only,  # type: bool
         artifacts_manager,  # type: ConcreteArtifactsManager
+        keyring,  # type: str
 ):  # type: (...) -> List[CollectionVerifyResult]
     r"""Verify the integrity of locally installed collections.
 
@@ -640,6 +960,7 @@ def verify_collections(
                     local_collection = Candidate.from_dir_path(
                         b_search_path, artifacts_manager,
                     )
+                    local_collection.signatures = collection.signatures
                     break
                 else:
                     raise AnsibleError(message=default_err)
@@ -677,7 +998,7 @@ def verify_collections(
 
                 result = verify_local_collection(
                     local_collection, remote_collection,
-                    artifacts_manager,
+                    artifacts_manager, keyring,
                 )
 
                 results.append(result)
