@@ -762,6 +762,7 @@ def install_collections(
         upgrade,  # type: bool
         allow_pre_release,  # type: bool
         artifacts_manager,  # type: ConcreteArtifactsManager
+        keyring,  # type: str
 ):  # type: (...) -> None
     """Install Ansible collections to the path specified.
 
@@ -775,7 +776,7 @@ def install_collections(
     :param force_deps: Re-install a collection as well as its dependencies if they have already been installed.
     """
     existing_collections = {
-        Requirement(coll.fqcn, coll.ver, coll.src, coll.type)
+        Requirement(coll.fqcn, coll.ver, coll.src, coll.type, None)
         for coll in find_existing_collections(output_path, artifacts_manager)
     }
 
@@ -794,6 +795,7 @@ def install_collections(
         ),
     )
     requested_requirements_names = {req.fqcn for req in unsatisfied_requirements}
+    requested_signatures = {req.fqcn: req.signatures for req in unsatisfied_requirements}
 
     # NOTE: Don't attempt to reevaluate already installed deps
     # NOTE: unless `--force` or `--force-with-deps` is passed
@@ -825,7 +827,7 @@ def install_collections(
         else existing_collections
     )
     preferred_collections = {
-        Candidate(coll.fqcn, coll.ver, coll.src, coll.type)
+        Candidate(coll.fqcn, coll.ver, coll.src, coll.type, coll.signatures)
         for coll in preferred_requirements
     }
     with _display_progress("Process install dependency map"):
@@ -856,7 +858,13 @@ def install_collections(
                 continue
 
             try:
-                install(concrete_coll_pin, output_path, artifacts_manager)
+                if concrete_coll_pin.type == 'galaxy':
+                    b_signatures = []
+                    for signature in concrete_coll_pin.signatures:
+                        b_signatures.append(to_bytes(signature, errors='surrogate_or_strict'))
+                    install(concrete_coll_pin, output_path, artifacts_manager, b_signatures, keyring)
+                else:
+                    install(concrete_coll_pin, output_path, artifacts_manager)
             except AnsibleError as err:
                 if ignore_errors:
                     display.warning(
@@ -973,6 +981,7 @@ def verify_collections(
                         collection.ver if collection.ver != '*'
                         else local_collection.ver,
                         None, 'galaxy',
+                        frozenset(list(local_collection.signatures) + list(collection.signatures)),
                     )
 
                     # Download collection on a galaxy server for comparison
@@ -1372,8 +1381,8 @@ def find_existing_collections(path, artifacts_manager):
             yield req
 
 
-def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
-    # type: (Candidate, str, ConcreteArtifactsManager) -> None
+def install(collection, path, artifacts_manager, b_signature_list=None, keyring=None):  # FIXME: mv to dataclasses?
+    # type: (Candidate, str, ConcreteArtifactsManager, [str], str) -> None
     """Install a collection under a given path.
 
     :param collection: Collection to be installed.
@@ -1398,7 +1407,7 @@ def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
     if collection.is_dir:
         install_src(collection, b_artifact_path, b_collection_path, artifacts_manager)
     else:
-        install_artifact(b_artifact_path, b_collection_path, artifacts_manager._b_working_directory)
+        install_artifact(b_artifact_path, b_collection_path, artifacts_manager._b_working_directory, b_signature_list, keyring)
 
     display.display(
         '{coll!s} was installed successfully'.
@@ -1406,20 +1415,32 @@ def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
     )
 
 
-def install_artifact(b_coll_targz_path, b_collection_path, b_temp_path):
+def install_artifact(b_coll_targz_path, b_collection_path, b_temp_path, b_signature_list=None, keyring=None):
     """Install a collection from tarball under a given path.
 
     :param b_coll_targz_path: Collection tarball to be installed.
     :param b_collection_path: Collection dirs layout path.
     :param b_temp_path: Temporary dir path.
+    :param b_signature_list: A list of detached signatures, only specified when the artifact source is type: galaxy
+    :param keyring: The keyring used for gpg verification, only specified when the artifact source is type: galaxy
     """
     try:
         with tarfile.open(b_coll_targz_path, mode='r') as collection_tar:
+            # Verify the signature on the MANIFEST.json before extracting anything else
+            _extract_tar_file(collection_tar, MANIFEST_FILENAME, b_collection_path, b_temp_path)
+
+            if b_signature_list is not None and keyring is not None:
+                b_manifest_file = os.path.join(b_collection_path, b'MANIFEST.json')
+                failed_verify = any(not verify_file_signature(b_manifest_file, b_sig, keyring) for b_sig in b_signature_list)
+                if failed_verify:
+                    coll_path_parts = to_text(b_collection_path, errors='surrogate_or_strict').split(os.path.sep)
+                    collection_name = '%s.%s' % (coll_path_parts[-2], coll_path_parts[-1])
+                    raise AnsibleError(f"Not installing {collection_name} because GnuPG signature verification failed.")
+
             files_member_obj = collection_tar.getmember('FILES.json')
             with _tarfile_extract(collection_tar, files_member_obj) as (dummy, files_obj):
                 files = json.loads(to_text(files_obj.read(), errors='surrogate_or_strict'))
 
-            _extract_tar_file(collection_tar, MANIFEST_FILENAME, b_collection_path, b_temp_path)
             _extract_tar_file(collection_tar, 'FILES.json', b_collection_path, b_temp_path)
 
             for file_info in files['files']:

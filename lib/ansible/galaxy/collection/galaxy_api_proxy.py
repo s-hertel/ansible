@@ -165,3 +165,7 @@ class MultiGalaxyAPIProxy:
             get_collection_version_metadata(collection_candidate).
             dependencies
         )
+
+    def get_signatures(self, fqcn, server, version):
+        namespace, name = fqcn.split('.')
+        return server.get_collection_signatures(namespace, name, version)

@@ -785,6 +785,11 @@ class GalaxyAPI:
                                          data['metadata']['dependencies'])
 
     @g_connect(['v2', 'v3'])
+    def get_collection_signatures(self, namespace, name, version):
+        # FIXME
+        return []
+
+    @g_connect(['v2', 'v3'])
     def get_collection_versions(self, namespace, name):
         """
         Gets a list of available versions for a collection on a Galaxy server.

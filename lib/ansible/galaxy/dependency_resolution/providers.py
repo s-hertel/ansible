@@ -67,7 +67,7 @@ class CollectionDependencyProvider(AbstractProvider):
             art_mgr=concrete_artifacts_manager,
         )
         self._pinned_candidate_requests = set(
-            Candidate(req.fqcn, req.ver, req.src, req.type)
+            Candidate(req.fqcn, req.ver, req.src, req.type, req.signatures)
             for req in (user_requirements or ())
             if req.is_concrete_artifact or (
                 req.ver != '*' and
@@ -107,7 +107,7 @@ class CollectionDependencyProvider(AbstractProvider):
             # NOTE: but it still can have entries with `src=None` so this
             # NOTE: normalized check is still necessary.
             return Candidate(
-                candidate.fqcn, candidate.ver, None, candidate.type,
+                candidate.fqcn, candidate.ver, None, candidate.type, candidate.signatures,
             ) in self._pinned_candidate_requests
 
         return False
@@ -217,23 +217,26 @@ class CollectionDependencyProvider(AbstractProvider):
             # FIXME: does using fqcn==None cause us problems here?
 
             return [
-                Candidate(fqcn, version, _none_src_server, first_req.type)
+                Candidate(fqcn, version, _none_src_server, first_req.type, frozenset())
                 for version, _none_src_server in coll_versions
             ]
 
-        latest_matches = sorted(
-            {
-                candidate for candidate in (
-                    Candidate(fqcn, version, src_server, 'galaxy')
-                    for version, src_server in coll_versions
+        latest_matches = []
+        for version, src_server in coll_versions:
+            tmp_candidate = Candidate(fqcn, version, src_server, 'galaxy', frozenset())
+
+            unsatisfied = False
+            signatures = self._api_proxy.get_signatures(fqcn, src_server, version)
+            for requirement in requirements:
+                unsatisfied |= not self.is_satisfied_by(requirement, tmp_candidate)
+                for sig in requirement.signatures:
+                    signatures.append(sig)
+
+            if not unsatisfied:
+                latest_matches.append(
+                    Candidate(fqcn, version, src_server, 'galaxy', frozenset(signatures))
                 )
-                if all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
-                # FIXME
-                # if all(self.is_satisfied_by(requirement, candidate) and (
-                #     requirement.src is None or  # if this is true for some candidates but not all it will break key param - Nonetype can't be compared to str
-                #     requirement.src == candidate.src
-                # ))
-            },
+        latest_matches.sort(
             key=lambda candidate: (
                 SemanticVersion(candidate.ver), candidate.src,
             ),
