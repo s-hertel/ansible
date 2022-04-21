@@ -195,6 +195,15 @@ class RoleDistributionServer:
         return self._api
 
 
+def validate_gpg_error_status_codes(value):
+    if value is not None:
+        value = to_text(value).split(',')
+        for status_code in value:
+            if status_code not in GPG_ERROR_MAP:
+                raise ValueError(f"invalid choice: {status_code} (choose from {list(GPG_ERROR_MAP.keys())})")
+    return value
+
+
 class GalaxyCLI(CLI):
     '''Command to manage Ansible roles and collections.
 
@@ -457,14 +466,13 @@ class GalaxyCLI(CLI):
         valid_signature_count_help = 'The number of signatures that must successfully verify the collection. This should be a positive integer ' \
                                      'or all to signify that all signatures must be used to verify the collection. ' \
                                      'Prepend the value with + to fail if no valid signatures are found for the collection (e.g. +all).'
-        ignore_gpg_status_help = 'A status code to ignore during signature verification (for example, NO_PUBKEY). ' \
-                                 'Provide this option multiple times to ignore a list of status codes. ' \
+        ignore_gpg_status_help = 'A comma separated list of status codes to ignore during signature verification (for example, NO_PUBKEY,FAILURE). ' \
+                                 f'Valid choices are {list(GPG_ERROR_MAP.keys())}' \
                                  'Descriptions for the choices can be seen at L(https://github.com/gpg/gnupg/blob/master/doc/DETAILS#general-status-codes).'
         verify_parser.add_argument('--required-valid-signature-count', dest='required_valid_signature_count', type=validate_signature_count,
                                    help=valid_signature_count_help, default=C.GALAXY_REQUIRED_VALID_SIGNATURE_COUNT)
-        verify_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=str, action='append',
-                                   help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES,
-                                   choices=list(GPG_ERROR_MAP.keys()))
+        verify_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=validate_gpg_error_status_codes, action='extend',
+                                   help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES)
 
     def add_install_options(self, parser, parents=None):
         galaxy_type = 'collection' if parser.metavar == 'COLLECTION_ACTION' else 'role'
@@ -498,8 +506,8 @@ class GalaxyCLI(CLI):
         valid_signature_count_help = 'The number of signatures that must successfully verify the collection. This should be a positive integer ' \
                                      'or -1 to signify that all signatures must be used to verify the collection. ' \
                                      'Prepend the value with + to fail if no valid signatures are found for the collection (e.g. +all).'
-        ignore_gpg_status_help = 'A status code to ignore during signature verification (for example, NO_PUBKEY). ' \
-                                 'Provide this option multiple times to ignore a list of status codes. ' \
+        ignore_gpg_status_help = 'A comma separated list of status codes to ignore during signature verification (for example, NO_PUBKEY,FAILURE). ' \
+                                 f'Valid choices are {list(GPG_ERROR_MAP.keys())}' \
                                  'Descriptions for the choices can be seen at L(https://github.com/gpg/gnupg/blob/master/doc/DETAILS#general-status-codes).'
 
         if galaxy_type == 'collection':
@@ -523,9 +531,8 @@ class GalaxyCLI(CLI):
                                              'collection name (mutually exclusive with --requirements-file).')
             install_parser.add_argument('--required-valid-signature-count', dest='required_valid_signature_count', type=validate_signature_count,
                                         help=valid_signature_count_help, default=C.GALAXY_REQUIRED_VALID_SIGNATURE_COUNT)
-            install_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=str, action='append',
-                                        help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES,
-                                        choices=list(GPG_ERROR_MAP.keys()))
+            install_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=validate_gpg_error_status_codes, action='extend',
+                                        help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES)
             install_parser.add_argument('--offline', dest='offline', action='store_true', default=False,
                                         help='Install collection artifacts (tarballs) without contacting any distribution servers. '
                                              'This does not apply to collections in remote Git repositories or URLs to remote tarballs.'
@@ -547,9 +554,8 @@ class GalaxyCLI(CLI):
                                             help='Disable GPG signature verification when installing collections from a Galaxy server')
                 install_parser.add_argument('--required-valid-signature-count', dest='required_valid_signature_count', type=validate_signature_count,
                                             help=valid_signature_count_help, default=C.GALAXY_REQUIRED_VALID_SIGNATURE_COUNT)
-                install_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=str, action='append',
-                                            help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES,
-                                            choices=list(GPG_ERROR_MAP.keys()))
+                install_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=validate_gpg_error_status_codes, action='extend',
+                                            help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES)
 
             install_parser.add_argument('-g', '--keep-scm-meta', dest='keep_scm_meta', action='store_true',
                                         default=False,
