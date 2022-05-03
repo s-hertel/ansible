@@ -171,7 +171,7 @@ class CollectionDependencyProviderBase(AbstractProvider):
         return requirement_or_candidate.canonical_package_id
 
     def get_preference(self, *args, **kwargs):
-        # type: (t.Any, t.Any) -> float | int
+        # type: (t.Any, t.Any) -> t.Union[float, int]
         """Return sort key function return value for given requirement.
 
         This result should be based on preference that is defined as
@@ -249,7 +249,7 @@ class CollectionDependencyProviderBase(AbstractProvider):
         raise NotImplementedError
 
     def _get_preference(self, candidates):
-        # type: (list[Candidate]) -> float | int
+        # type: (list[Candidate]) -> t.Union[float, int]
         if any(
                 candidate in self._preferred_candidates
                 for candidate in candidates
@@ -484,7 +484,7 @@ class CollectionDependencyProvider050(CollectionDependencyProviderBase):
         return self._find_matches(requirements)
 
     def get_preference(self, resolution, candidates, information):  # type: ignore[override]
-        # type: (Candidate | None, list[Candidate], list[t.NamedTuple]) -> float | int
+        # type: (t.Optional[Candidate], list[Candidate], list[t.NamedTuple]) -> t.Union[float, int]
         return self._get_preference(candidates)
 
 
@@ -497,7 +497,7 @@ class CollectionDependencyProvider060(CollectionDependencyProviderBase):
         ]
 
     def get_preference(self, resolution, candidates, information):  # type: ignore[override]
-        # type: (Candidate | None, list[Candidate], list[t.NamedTuple]) -> float | int
+        # type: (t.Optional[Candidate], list[Candidate], list[t.NamedTuple]) -> t.Union[float, int]
         return self._get_preference(candidates)
 
 
@@ -510,7 +510,7 @@ class CollectionDependencyProvider070(CollectionDependencyProviderBase):
         ]
 
     def get_preference(self, identifier, resolutions, candidates, information):  # type: ignore[override]
-        # type: (str, t.Mapping[str, Candidate], t.Mapping[str, t.Iterator[Candidate]], t.Iterator[t.NamedTuple]) -> float | int
+        # type: (str, t.Mapping[str, Candidate], t.Mapping[str, t.Iterator[Candidate]], t.Iterator[t.NamedTuple]) -> t.Union[float, int]
         return self._get_preference(list(candidates[identifier]))
 
 
@@ -523,7 +523,7 @@ class CollectionDependencyProvider080(CollectionDependencyProviderBase):
         ]
 
     def get_preference(self, identifier, resolutions, candidates, information, backtrack_causes):  # type: ignore[override]
-        # type: (str, t.Mapping[str, Candidate], t.Mapping[str, t.Iterator[Candidate]], t.Iterator[t.NamedTuple], t.Sequence) -> float | int
+        # type: (str, t.Mapping[str, Candidate], t.Mapping[str, t.Iterator[Candidate]], t.Iterator[t.NamedTuple], t.Sequence) -> t.Union[float, int]
         return self._get_preference(list(candidates[identifier]))
 
 
