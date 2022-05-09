@@ -482,6 +482,8 @@ class GalaxyCLI(CLI):
             install_parser.add_argument('--ignore-signature-status-code', dest='ignore_gpg_errors', type=str, action='append',
                                         help=ignore_gpg_status_help, default=C.GALAXY_IGNORE_INVALID_SIGNATURE_STATUS_CODES,
                                         choices=list(GPG_ERROR_MAP.keys()))
+            install_parser.add_argument('--check-mode', dest='check_mode', default=False, action='store_true',
+                                        help='check which collections will be installed')
         else:
             install_parser.add_argument('-r', '--role-file', dest='requirements',
                                         help='A file containing a list of roles to be installed.')
@@ -1331,6 +1333,7 @@ class GalaxyCLI(CLI):
             allow_pre_release=allow_pre_release,
             artifacts_manager=artifacts_manager,
             disable_gpg_verify=disable_gpg_verify,
+            check_mode=context.CLIARGS.get('check_mode', False)
         )
 
         return 0
