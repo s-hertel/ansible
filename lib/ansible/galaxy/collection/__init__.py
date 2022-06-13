@@ -105,9 +105,21 @@ from ansible.galaxy.collection.concrete_artifact_manager import (
     _tarfile_extract,
 )
 from ansible.galaxy.collection.galaxy_api_proxy import MultiGalaxyAPIProxy
-from ansible.galaxy.dependency_resolution import (
-    build_collection_dependency_resolver,
-)
+try:
+    from ansible.galaxy.dependency_resolution import (
+        build_collection_dependency_resolver,
+    )
+
+    from ansible.galaxy.dependency_resolution.providers import (
+        RESOLVELIB_VERSION,
+        RESOLVELIB_LOWERBOUND,
+        RESOLVELIB_UPPERBOUND,
+    )
+except ImportError:
+    HAS_RESOLVELIB = False
+else:
+    HAS_RESOLVELIB = True
+
 from ansible.galaxy.dependency_resolution.dataclasses import (
     Candidate, Requirement, _is_installed_collection_dir,
 )
@@ -1360,6 +1372,10 @@ def _resolve_depenency_map(
         with_pre_releases=allow_pre_release,
         upgrade=upgrade,
     )
+    if not HAS_RESOLVELIB or not RESOLVELIB_LOWERBOUND <= RESOLVELIB_VERSION < RESOLVELIB_UPPERBOUND:
+        raise AnsibleError(
+            f"ansible-galaxy requires resolvelib<{RESOLVELIB_UPPERBOUND.vstring},>={RESOLVELIB_LOWERBOUND.vstring}"
+        )
     try:
         return collection_dep_resolver.resolve(
             requested_requirements,
