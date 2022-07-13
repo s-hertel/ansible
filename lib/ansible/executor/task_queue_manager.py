@@ -19,11 +19,14 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+from dataclasses import dataclass, field
+
 import os
 import sys
 import tempfile
 import threading
 import time
+import typing as t
 import multiprocessing.queues
 
 from ansible import constants as C
@@ -64,6 +67,15 @@ class DisplaySend:
         self.kwargs = kwargs
 
 
+@dataclass
+class PromptSend:
+    worker_id: int
+    echo: bool = False
+    seconds: int = None
+    interrupt_input: t.Callable[[str, str], bool] = None
+    complete_input: t.Callable[[str, str], bool] = None
+
+
 class FinalQueue(multiprocessing.queues.Queue):
     def __init__(self, *args, **kwargs):
         kwargs['ctx'] = multiprocessing_context
@@ -88,6 +100,12 @@ class FinalQueue(multiprocessing.queues.Queue):
     def send_display(self, *args, **kwargs):
         self.put(
             DisplaySend(*args, **kwargs),
+            block=False
+        )
+
+    def send_prompt(self, *args, **kwargs):
+        self.put(
+            PromptSend(*args, **kwargs),
             block=False
         )
 

@@ -19,6 +19,17 @@ from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
 import ctypes.util
+try:
+    import curses
+    import io
+    # Nest the try except since curses.error is not available if curses did not import
+    try:
+        curses.setupterm()
+        HAS_CURSES = True
+    except (curses.error, TypeError, io.UnsupportedOperation):
+        HAS_CURSES = False
+except ImportError:
+    HAS_CURSES = False
 import fcntl
 import getpass
 import logging
@@ -26,12 +37,13 @@ import os
 import random
 import subprocess
 import sys
+import termios
 import textwrap
 import threading
 import time
+import tty
 
 from struct import unpack, pack
-from termios import TIOCGWINSZ
 
 from ansible import constants as C
 from ansible.errors import AnsibleError, AnsibleAssertionError
@@ -51,6 +63,13 @@ _LIBC.wcwidth.argtypes = (ctypes.c_wchar,)
 _LIBC.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
 # Max for c_int
 _MAX_INT = 2 ** (ctypes.sizeof(ctypes.c_int) * 8 - 1) - 1
+
+MOVE_TO_BOL = b'\r'
+CLEAR_TO_EOL = b'\x1b[K'
+if HAS_CURSES:
+    # curses.tigetstr() returns None in some circumstances
+    MOVE_TO_BOL = curses.tigetstr('cr') or MOVE_TO_BOL
+    CLEAR_TO_EOL = curses.tigetstr('el') or CLEAR_TO_EOL
 
 
 def get_text_width(text):
@@ -181,6 +200,64 @@ def _synchronize_textiowrapper(tio, lock):
     # monkeypatching the underlying file-like object isn't great, but likely safer than subclassing
     buffer.write = _wrap_with_lock(buffer.write, lock)
     buffer.flush = _wrap_with_lock(buffer.flush, lock)
+
+
+def setraw(fd, when=termios.TCSAFLUSH):
+    """Put terminal into a raw mode.
+
+    Copied from ``tty`` from CPython 3.11.0, and modified to not remove OPOST from OFLAG
+
+    OPOST is kept to prevent an issue with multi line prompts from being corrupted now that display
+    is proxied via the queue from forks. The problem is a race condition, in that we proxy the display
+    over the fork, but before it can be displayed, this plugin will have continued executing, potentially
+    setting stdout and stdin to raw which remove output post processing that commonly converts NL to CRLF
+    """
+    mode = termios.tcgetattr(fd)
+    mode[tty.IFLAG] = mode[tty.IFLAG] & ~(termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON)
+    mode[tty.OFLAG] = mode[tty.OFLAG] & ~(termios.OPOST)
+    mode[tty.CFLAG] = mode[tty.CFLAG] & ~(termios.CSIZE | termios.PARENB)
+    mode[tty.CFLAG] = mode[tty.CFLAG] | termios.CS8
+    mode[tty.LFLAG] = mode[tty.LFLAG] & ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
+    mode[tty.CC][termios.VMIN] = 1
+    mode[tty.CC][termios.VTIME] = 0
+    termios.tcsetattr(fd, when, mode)
+
+
+def clear_line(stdout):
+    stdout.write(b'\x1b[%s' % MOVE_TO_BOL)
+    stdout.write(b'\x1b[%s' % CLEAR_TO_EOL)
+
+
+def get_sequence(stdin_fd, sequence, default):
+    try:
+        return termios.tcgetattr(stdin_fd)[6][sequence]
+    except Exception:
+        # unsupported/not present, use default
+        return default
+
+
+def setup_prompt(stdin_fd, stdout_fd, seconds, echo):
+    setraw(stdin_fd)
+
+    # Only set stdout to raw mode if it is a TTY. This is needed when redirecting
+    # stdout to a file since a file cannot be set to raw mode.
+    if os.isatty(stdout_fd):
+        setraw(stdout_fd)
+
+    # Only echo input if no timeout is specified
+    if not seconds and echo:
+        new_settings = termios.tcgetattr(stdin_fd)
+        new_settings[3] = new_settings[3] | termios.ECHO
+        termios.tcsetattr(stdin_fd, termios.TCSANOW, new_settings)
+
+
+def default_input_interrupt(display=None, key_pressed=None, result_string=None):
+    intr = get_sequence(display._stdin_fd, termios.VINTR, b'\x03')  # value for Ctrl+C
+    return key_pressed == intr
+
+
+def default_input_complete(display=None, key_pressed=None, result_string=None):
+    return key_pressed in (b'\r', b'\n')
 
 
 class Display(metaclass=Singleton):
@@ -520,7 +597,117 @@ class Display(metaclass=Singleton):
 
     def _set_column_width(self):
         if os.isatty(1):
-            tty_size = unpack('HHHH', fcntl.ioctl(1, TIOCGWINSZ, pack('HHHH', 0, 0, 0, 0)))[1]
+            tty_size = unpack('HHHH', fcntl.ioctl(1, termios.TIOCGWINSZ, pack('HHHH', 0, 0, 0, 0)))[1]
         else:
             tty_size = 0
         self.columns = max(79, tty_size - 1)
+
+    def do_non_blocking_read_until(self, echo=False, seconds=None, interrupt_input=None, complete_input=None):
+        if self._final_q:
+            from ansible.executor.process.worker_sync import worker_id
+            self._final_q.send_prompt(worker_id, echo, seconds, interrupt_input, complete_input)
+            return
+
+        if not self.stdin_is_interactive:
+            return b''
+
+        original_stdin_settings = termios.tcgetattr(self._stdin_fd)
+        result = b''
+        try:
+            setup_prompt(self._stdin_fd, self._stdout_fd, seconds, echo)
+
+            # flush the buffer to make sure no previous key presses
+            # are read in below
+            termios.tcflush(self._stdin, termios.TCIFLUSH)
+
+            result = self._read_non_blocking_stdin(echo=echo, seconds=seconds, interrupt_input=interrupt_input, complete_input=complete_input)
+        finally:
+            # restore the old settings for the duped stdin stdin_fd
+            termios.tcsetattr(self._stdin_fd, termios.TCSADRAIN, original_stdin_settings)
+        return result
+
+    def _read_non_blocking_stdin(self, echo=False, seconds=None, start=None, interrupt_input=None, complete_input=None):
+        if self._final_q:
+            raise NotImplementedError
+
+        if seconds is not None and start is None:
+            start = time.time()
+        if interrupt_input is None:
+            interrupt_input = default_input_interrupt
+        if complete_input is None:
+            complete_input = default_input_complete
+
+        backspace = get_sequence(self._stdin_fd, termios.VERASE, [b'\x7f', b'\x08'])
+
+        result_string = b''
+        while seconds is None or (time.time() - start < seconds):
+            key_pressed = None
+            try:
+                os.set_blocking(self._stdin_fd, False)
+                while key_pressed is None and (seconds is None or (time.time() - start < seconds)):
+                    key_pressed = self._stdin.read(1)
+            finally:
+                os.set_blocking(self._stdin_fd, True)
+                if key_pressed is None:
+                    key_pressed = b''
+
+            if interrupt_input(display=self, key_pressed=key_pressed, result_string=result_string):
+                clear_line(self._stdout)
+                return None
+
+            if complete_input(display=self, key_pressed=key_pressed, result_string=result_string):
+                clear_line(self._stdout)
+                break
+            elif key_pressed in backspace:
+                clear_line(self._stdout)
+                result_string = result_string[:-1]
+                if echo:
+                    self._stdout.write(result_string)
+                self._stdout.flush()
+            else:
+                result_string += key_pressed
+        return result_string
+
+    @property
+    def stdin_is_interactive(self):
+        if self._final_q:
+            raise NotImplementedError
+
+        if self._stdin_fd is None:
+            return False
+
+        if os.isatty(self._stdin_fd):
+            # Compare the current process group to the process group associated
+            # with terminal of the given file descriptor to determine if the process
+            # is running in the background.
+            return os.getpgrp() == os.tcgetpgrp(self._stdin_fd)
+        return False
+
+    @property
+    def _stdin(self):
+        if self._final_q:
+            raise NotImplementedError
+        try:
+            return sys.stdin.buffer
+        except AttributeError:
+            return None
+
+    @property
+    def _stdin_fd(self):
+        try:
+            return self._stdin.fileno()
+        except (ValueError, AttributeError):
+            return None
+
+    @property
+    def _stdout(self):
+        if self._final_q:
+            raise NotImplementedError
+        return sys.stdout.buffer
+
+    @property
+    def _stdout_fd(self):
+        try:
+            return self._stdout.fileno()
+        except (ValueError, AttributeError):
+            return None

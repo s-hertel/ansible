@@ -260,8 +260,7 @@ class MyAddPolicy(object):
     local L{HostKeys} object, and saving it.  This is used by L{SSHClient}.
     """
 
-    def __init__(self, new_stdin, connection):
-        self._new_stdin = new_stdin
+    def __init__(self, connection):
         self.connection = connection
         self._options = connection._options
 
@@ -279,14 +278,16 @@ class MyAddPolicy(object):
 
             self.connection.connection_lock()
 
-            old_stdin = sys.stdin
-            sys.stdin = self._new_stdin
+            display.display(AUTHENTICITY_MSG % (hostname, ktype, fingerprint))
 
-            # clear out any premature input on sys.stdin
-            tcflush(sys.stdin, TCIFLUSH)
-
-            inp = input(AUTHENTICITY_MSG % (hostname, ktype, fingerprint))
-            sys.stdin = old_stdin
+            from ansible.executor.process.worker_sync import worker_queue
+            display.do_non_blocking_read_until(echo=False)
+            inp = worker_queue.get()
+            if inp is None:
+                # KeyboardInterrupt
+                raise AnsibleError("host connection interrupted by user")
+            else:
+                inp = to_text(inp, errors='surrogate_or_strict')
 
             self.connection.connection_unlock()
 
@@ -418,7 +419,7 @@ class Connection(ConnectionBase):
 
         ssh_connect_kwargs = self._parse_proxy_command(port)
 
-        ssh.set_missing_host_key_policy(MyAddPolicy(self._new_stdin, self))
+        ssh.set_missing_host_key_policy(MyAddPolicy(self))
 
         conn_password = self.get_option('password') or self._play_context.password
 

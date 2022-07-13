@@ -43,7 +43,7 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
     for reading later.
     '''
 
-    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj):
+    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj, prompt_response_q, worker_id):
 
         super(WorkerProcess, self).__init__()
         # takes a task queue manager as the sole param:
@@ -60,12 +60,28 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
         # clear var to ensure we only delete files for this child
         self._loader._tempfiles = set()
 
+        from ansible.executor.process import worker_sync
+        worker_sync.worker_queue = prompt_response_q
+        worker_sync.worker_id = worker_id
+
+    @property
+    def _new_stdin(self):
+        display.deprecated(
+            "The WorkerProcess's stdin object is deprecated. "
+            "Signal the main results thread to read user input by calling "
+            "display.do_non_blocking_read_until() and retrieve the input "
+            "from the worker_queue after importing it from "
+            "ansible.executor.process.worker_sync.",
+            version='2.19',
+        )
+        return self.__new_stdin
+
     def _save_stdin(self):
-        self._new_stdin = None
+        self.__new_stdin = None
         try:
             if sys.stdin.isatty() and sys.stdin.fileno() is not None:
                 try:
-                    self._new_stdin = os.fdopen(os.dup(sys.stdin.fileno()))
+                    self.__new_stdin = os.fdopen(os.dup(sys.stdin.fileno()))
                 except OSError:
                     # couldn't dupe stdin, most likely because it's
                     # not a valid file descriptor
@@ -74,8 +90,8 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
             # couldn't get stdin's fileno
             pass
 
-        if self._new_stdin is None:
-            self._new_stdin = open(os.devnull)
+        if self.__new_stdin is None:
+            self.__new_stdin = open(os.devnull)
 
     def start(self):
         '''
@@ -92,7 +108,7 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
             try:
                 return super(WorkerProcess, self).start()
             finally:
-                self._new_stdin.close()
+                self.__new_stdin.close()
 
     def _hard_exit(self, e):
         '''
@@ -163,7 +179,7 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
                 self._task,
                 self._task_vars,
                 self._play_context,
-                self._new_stdin,
+                self.__new_stdin,
                 self._loader,
                 self._shared_loader_obj,
                 self._final_q
