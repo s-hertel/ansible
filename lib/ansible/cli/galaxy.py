@@ -322,10 +322,14 @@ class GalaxyCLI(CLI):
         obj_name_kwargs = {}
         if galaxy_type == 'collection':
             obj_name_kwargs['type'] = validate_collection_name
-        init_parser.add_argument('{0}_name'.format(galaxy_type), help='{0} name'.format(galaxy_type.capitalize()),
-                                 **obj_name_kwargs)
+            init_parser.add_argument('{0}_name'.format(galaxy_type), nargs='?', help='{0} name'.format(galaxy_type.capitalize()),
+                                     **obj_name_kwargs)
+
 
         if galaxy_type == 'role':
+            init_parser.add_argument('{0}_name'.format(galaxy_type), help='{0} name'.format(galaxy_type.capitalize()),
+                                     **obj_name_kwargs)
+
             init_parser.add_argument('--type', dest='role_type', action='store', default='default',
                                      help="Initialize using an alternate role type. Valid types include: 'container', "
                                           "'apb' and 'network'.")
@@ -1050,7 +1054,19 @@ class GalaxyCLI(CLI):
             skeleton_ignore_expressions = C.GALAXY_ROLE_SKELETON_IGNORE
             obj_path = os.path.join(init_path, obj_name)
         elif galaxy_type == 'collection':
-            namespace, collection_name = obj_name.split('.', 1)
+            if obj_name is None:
+                if init_path:
+                    coll_path = os.path.abspath(init_path)
+                else:
+                    coll_path = os.getcwd()
+                coll_path_parts = coll_path.split(os.path.sep)
+                if len(coll_path_parts) < 2:
+                    raise AnsibleError(f"A collection name was not provided and one cannot be determined from {coll_path}.")
+                namespace = coll_path_parts[-2]
+                collection_name = coll_path_parts[-1]
+                obj_name = f"{namespace}.{collection_name}"
+            else:
+                namespace, collection_name = obj_name.split('.', 1)
 
             inject_data.update(dict(
                 namespace=namespace,
@@ -1067,7 +1083,11 @@ class GalaxyCLI(CLI):
             ))
 
             skeleton_ignore_expressions = C.GALAXY_COLLECTION_SKELETON_IGNORE
-            obj_path = os.path.join(init_path, namespace, collection_name)
+
+            if context.CLIARGS['{0}_name'.format(galaxy_type)] is not None:
+                obj_path = os.path.join(init_path, namespace, collection_name)
+            else:
+                obj_path = init_path
 
         b_obj_path = to_bytes(obj_path, errors='surrogate_or_strict')
 
@@ -1079,6 +1099,8 @@ class GalaxyCLI(CLI):
                                    "You can use --force to re-initialize this directory,\n"
                                    "however it will reset any main.yml files that may have\n"
                                    "been modified there already." % to_native(obj_path))
+            shutil.rmtree(b_obj_path)
+            os.mkdir(b_obj_path)
 
         if obj_skeleton is not None:
             own_skeleton = False
