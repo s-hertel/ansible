@@ -674,6 +674,17 @@ class DocCLI(CLI, RoleMixin):
             except PluginNotFound:
                 display.warning("%s %s not found in:\n%s\n" % (plugin_type, plugin, search_paths))
                 continue
+            except AnsibleError:
+                if not fail_on_errors:
+                    plugin_docs[plugin] = {
+                        'error': to_native(e)
+                    }
+                    continue
+                display.vvv(traceback.format_exc())
+                if fail_ok:
+                    display.warning(to_native(e))
+                else:
+                    raise
             except Exception as e:
                 if not fail_on_errors:
                     plugin_docs[plugin] = {
