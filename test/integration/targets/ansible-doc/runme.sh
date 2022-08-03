@@ -39,7 +39,7 @@ do
 	# FIXME post=$(ansible-doc -l -t ${ptype} --playbook-dir ./|wc -l)
 	# FIXME test "$pre" -eq $((post - 1))
 	if [ "${ptype}" == "filter" ]; then
-		expected=3
+		expected=2
 	else
 		expected=1
 	fi
