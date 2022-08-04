@@ -296,6 +296,7 @@ def find_plugin_docfile(plugin, plugin_type, loader):
     '''  if the plugin lives in a non-python file (eg, win_X.ps1), require the corresponding 'sidecar' file for docs '''
 
     context = loader.find_plugin_with_context(plugin, ignore_deprecated=False, check_aliases=True)
+    plugin_obj = None
     if (not context or not context.resolved) and plugin_type in ('filter', 'test'):
         # should only happen for filters/test
         plugin_obj, context = loader.get_with_context(plugin)
@@ -305,7 +306,8 @@ def find_plugin_docfile(plugin, plugin_type, loader):
 
     docfile = Path(context.plugin_resolved_path)
     if docfile.suffix not in C.DOC_EXTENSIONS or \
-       (docfile.name not in (plugin, plugin_obj._load_name, context.redirected_names[-1]) and not docfile.name.startswith('_')):
+       (docfile.name not in (plugin, getattr(plugin_obj, '_load_name', None), context.redirect_list[-1], context.plugin_resolved_name) and \
+       not docfile.name.startswith('_')):
         # only look for adjacent if plugin file does not support documents or
         # name does not match file basname (except deprecated)
         filename = _find_adjacent(docfile, plugin, C.DOC_EXTENSIONS)
