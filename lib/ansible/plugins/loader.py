@@ -1209,10 +1209,6 @@ class Jinja2Loader(PluginLoader):
                     display.debug("%s skipped due to a defined plugin filter" % plugin_name)
                     continue
 
-                if plugin_name in found:
-                    display.debug("%s skipped as duplicate" % plugin_name)
-                    continue
-
                 if path_only:
                     result = p_map._original_path
                 else:

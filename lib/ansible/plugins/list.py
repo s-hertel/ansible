@@ -87,6 +87,7 @@ def _list_plugins_from_paths(ptype, dirs, collection, depth=0):
                                 if path not in ploader._extra_dirs:
                                     ploader.add_directory(path)
                                     added = True
+                                seen = set()
                                 for plugin in ploader.all():
                                     plugin_path = plugin._original_path
                                     if not is_subpath(plugin_path, path, real=True):
@@ -95,7 +96,11 @@ def _list_plugins_from_paths(ptype, dirs, collection, depth=0):
                                         continue
 
                                     plugin_name = get_composite_name(collection, plugin._load_name, path, depth)
+                                    if plugin_name in seen:
+                                        display.debug("%s skipped as duplicate" % plugin_name)
+                                        continue
                                     plugins[plugin_name] = plugin_path
+                                    seen.add(plugin_name)
                             finally:
                                 if added:
                                     ploader._extra_dirs.remove(os.path.realpath(path))
