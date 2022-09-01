@@ -98,7 +98,10 @@ def with_collection_artifacts_manager(wrapped_method):
         if 'artifacts_manager' in kwargs:
             return wrapped_method(*args, **kwargs)
 
-        artifacts_manager_kwargs = {'validate_certs': context.CLIARGS['validate_certs']}
+        artifacts_manager_kwargs = {
+            'validate_certs': context.CLIARGS['validate_certs'],
+            'git_init_submodules': context.CLIARGS.get('git_init_submodules', False),
+        }
 
         keyring = context.CLIARGS.get('keyring', None)
         if keyring is not None:

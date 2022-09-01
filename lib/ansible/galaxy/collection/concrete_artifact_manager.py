@@ -61,8 +61,8 @@ class ConcreteArtifactsManager:
         * caching all of above
         * retrieving the metadata out of the downloaded artifacts
     """
-    def __init__(self, b_working_directory, validate_certs=True, keyring=None, timeout=60, required_signature_count=None, ignore_signature_errors=None):
-        # type: (bytes, bool, str, int, str, list[str]) -> None
+    def __init__(self, b_working_directory, validate_certs=True, keyring=None, timeout=60, required_signature_count=None, ignore_signature_errors=None, git_init_submodules=False):
+        # type: (bytes, bool, str, int, str, list[str], bool) -> None
         """Initialize ConcreteArtifactsManager caches and costraints."""
         self._validate_certs = validate_certs  # type: bool
         self._artifact_cache = {}  # type: dict[bytes, bytes]
@@ -77,6 +77,7 @@ class ConcreteArtifactsManager:
         self._required_signature_count = required_signature_count  # type: str
         self._ignore_signature_errors = ignore_signature_errors  # type: list[str]
         self._require_build_metadata = True  # type: bool
+        self._git_init_submodules = git_init_submodules  # type: bool
 
     @property
     def keyring(self):
@@ -238,6 +239,7 @@ class ConcreteArtifactsManager:
                 collection.src,
                 collection.ver,
                 self._b_working_directory,
+                self._git_init_submodules,
             )
         elif collection.is_file or collection.is_dir or collection.is_subdirs:
             b_artifact_path = to_bytes(collection.src)
@@ -354,6 +356,7 @@ class ConcreteArtifactsManager:
             required_signature_count=None,  # type: str
             ignore_signature_errors=None,  # type: list[str]
             require_build_metadata=True,  # type: bool
+            git_init_submodules=False,  # type: bool
     ):  # type: (...) -> t.Iterator[ConcreteArtifactsManager]
         """Custom ConcreteArtifactsManager constructor with temp dir.
 
@@ -373,7 +376,8 @@ class ConcreteArtifactsManager:
                 validate_certs,
                 keyring=keyring,
                 required_signature_count=required_signature_count,
-                ignore_signature_errors=ignore_signature_errors
+                ignore_signature_errors=ignore_signature_errors,
+                git_init_submodules=git_init_submodules,
             )
         finally:
             rmtree(b_temp_path)
@@ -406,7 +410,7 @@ def parse_scm(collection, version):
     return name, version, path, fragment
 
 
-def _extract_collection_from_git(repo_url, coll_ver, b_path):
+def _extract_collection_from_git(repo_url, coll_ver, b_path, with_submodule_cli_request=False):
     name, version, git_url, fragment = parse_scm(repo_url, coll_ver)
     b_checkout_path = mkdtemp(
         dir=b_path,
@@ -456,7 +460,6 @@ def _extract_collection_from_git(repo_url, coll_ver, b_path):
         )
 
     has_submodules = (pathlib.Path(to_native(b_checkout_path)) / '.gitmodules').is_file()
-    with_submodule_cli_request = context.CLIARGS['git_init_submodules']
     if with_submodule_cli_request and has_submodules:
         git_submodule_cmd = git_executable, 'submodule', 'update', '--init', '--recursive'
         try:
