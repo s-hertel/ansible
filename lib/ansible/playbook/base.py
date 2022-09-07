@@ -710,7 +710,7 @@ class Base(FieldAttributeBase):
     ignore_unreachable = FieldAttribute(isa='bool')
     check_mode = FieldAttribute(isa='bool', default=context.cliargs_deferred_get('check'))
     diff = FieldAttribute(isa='bool', default=context.cliargs_deferred_get('diff'))
-    any_errors_fatal = FieldAttribute(isa='bool', default=C.ANY_ERRORS_FATAL)
+    any_errors_fatal = FieldAttribute(isa='bool', default=C.ANY_ERRORS_FATAL, always_post_validate=True)
     throttle = FieldAttribute(isa='int', default=0)
     timeout = FieldAttribute(isa='int', default=C.TASK_TIMEOUT)
 
