@@ -294,30 +294,37 @@ def main():
     else:
         blocklines = []
 
-    def get_multiline_marker(marker, lines, get_starting_point=True):
+    def get_multiline_marker(marker, lines, line_index=0):
         match = None
         marker_index = 0
         matched_lines = []
         marker_lines = marker.splitlines(True)
-        for i, line in enumerate(lines):
-            if line == marker_lines[marker_index]:
-                matched_lines.append(i)
-                marker_index += 1
-            else:
-                # not the marker, start over
-                matched_lines = []
-                marker_index = 0
-            if marker_index == len(marker_lines):
-                # found it
-                if get_starting_point:
-                    match = matched_lines[0]
+
+        while match is None and line_index < len(lines) - 1:
+            for _i, line in enumerate(lines[line_index:]):
+                i = line_index + _i
+                if line == marker_lines[marker_index]:
+                    matched_lines.append(i)
+                    marker_index += 1
                 else:
-                    match = matched_lines[-1]
-                break
+                    # not the marker, start over using the next possible line index
+                    matched_lines = []
+                    marker_index = 0
+                    line_index += 1
+                    break
+                if marker_index == len(marker_lines):
+                    # found it
+                    match = (matched_lines[0], matched_lines[-1])
+                    break
         return match
 
-    n0 = get_multiline_marker(marker0, lines)
-    n1 = get_multiline_marker(marker1, lines, get_starting_point=False)
+    n0 = n1 = None
+    n0_match = get_multiline_marker(marker0, lines)
+    if n0_match:
+        n0 = n0_match[0]
+        n1_match = get_multiline_marker(marker1, lines, line_index=n0_match[1] + 1)
+        if n1_match:
+            n1 = n1_match[1]
 
     if None in (n0, n1):
         n0 = None
