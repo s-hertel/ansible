@@ -294,12 +294,30 @@ def main():
     else:
         blocklines = []
 
-    n0 = n1 = None
-    for i, line in enumerate(lines):
-        if line == marker0:
-            n0 = i
-        if line == marker1:
-            n1 = i
+    def get_multiline_marker(marker, lines, get_starting_point=True):
+        match = None
+        marker_index = 0
+        matched_lines = []
+        marker_lines = marker.splitlines(True)
+        for i, line in enumerate(lines):
+            if line == marker_lines[marker_index]:
+                matched_lines.append(i)
+                marker_index += 1
+            else:
+                # not the marker, start over
+                matched_lines = []
+                marker_index = 0
+            if marker_index == len(marker_lines):
+                # found it
+                if get_starting_point:
+                    match = matched_lines[0]
+                else:
+                    match = matched_lines[-1]
+                break
+        return match
+
+    n0 = get_multiline_marker(marker0, lines)
+    n1 = get_multiline_marker(marker1, lines, get_starting_point=False)
 
     if None in (n0, n1):
         n0 = None
