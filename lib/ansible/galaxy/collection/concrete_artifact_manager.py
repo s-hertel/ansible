@@ -59,7 +59,7 @@ class ConcreteArtifactsManager:
         * caching all of above
         * retrieving the metadata out of the downloaded artifacts
     """
-    def __init__(self, b_working_directory, validate_certs=True, keyring=None, timeout=60, required_signature_count=None, ignore_signature_errors=None):
+    def __init__(self, b_working_directory, validate_certs=True, keyring=None, timeout=60, required_signature_count=None, ignore_signature_errors=None, offline=False):
         # type: (bytes, bool, str, int, str, list[str]) -> None
         """Initialize ConcreteArtifactsManager caches and costraints."""
         self._validate_certs = validate_certs  # type: bool
@@ -75,6 +75,7 @@ class ConcreteArtifactsManager:
         self._required_signature_count = required_signature_count  # type: str
         self._ignore_signature_errors = ignore_signature_errors  # type: list[str]
         self._require_build_metadata = True  # type: bool
+        self._offline = offline
 
     @property
     def keyring(self):
@@ -146,6 +147,8 @@ class ConcreteArtifactsManager:
                 key_err,
             )
 
+        if self._offline:
+            raise RuntimeError(f"Cannot download artifact {collection} from {url} with --offline to determine if it needs to be installed.")
         display.vvvv(
             "Fetching a collection tarball for '{collection!s}' from "
             'Ansible Galaxy'.format(collection=collection),
@@ -207,6 +210,8 @@ class ConcreteArtifactsManager:
         # NOTE: virtual Requirement/Candidate types --
         # NOTE: (single) dir + (multidir) subdirs
         if collection.is_url:
+            if self._offline:
+                raise AnsibleError(f"Cannot download tarfile {collection} with --offline to determine if it needs to be installed.")
             display.vvvv(
                 "Collection requirement '{collection!s}' is a URL "
                 'to a tar artifact'.format(collection=collection.fqcn),
@@ -232,6 +237,8 @@ class ConcreteArtifactsManager:
                     err,
                 )
         elif collection.is_scm:
+            if self._offline and not (collection.src.startswith('file:///') or os.path.isdir(collection.src)):
+                raise AnsibleError(f"Cannot download Git repo {collection} with --offline, but would have installed it.")  # FIXME
             b_artifact_path = _extract_collection_from_git(
                 collection.src,
                 collection.ver,
@@ -352,6 +359,7 @@ class ConcreteArtifactsManager:
             required_signature_count=None,  # type: str
             ignore_signature_errors=None,  # type: list[str]
             require_build_metadata=True,  # type: bool
+            offline=False,  # type: bool
     ):  # type: (...) -> t.Iterator[ConcreteArtifactsManager]
         """Custom ConcreteArtifactsManager constructor with temp dir.
 
@@ -371,7 +379,8 @@ class ConcreteArtifactsManager:
                 validate_certs,
                 keyring=keyring,
                 required_signature_count=required_signature_count,
-                ignore_signature_errors=ignore_signature_errors
+                ignore_signature_errors=ignore_signature_errors,
+                offline=offline,
             )
         finally:
             rmtree(b_temp_path)

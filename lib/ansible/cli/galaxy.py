@@ -100,7 +100,7 @@ def with_collection_artifacts_manager(wrapped_method):
         if 'artifacts_manager' in kwargs:
             return wrapped_method(*args, **kwargs)
 
-        artifacts_manager_kwargs = {'validate_certs': context.CLIARGS['validate_certs']}
+        artifacts_manager_kwargs = {'validate_certs': context.CLIARGS['validate_certs'], 'offline': context.CLIARGS.get('offline', False)}
 
         keyring = context.CLIARGS.get('keyring', None)
         if keyring is not None:
@@ -530,7 +530,9 @@ class GalaxyCLI(CLI):
                                         choices=list(GPG_ERROR_MAP.keys()))
             install_parser.add_argument('--offline', dest='offline', action='store_true', default=False,
                                         help='Install collection artifacts (tarballs) without contacting any distribution servers. '
-                                             'This does not apply to collections in remote Git repositories or URLs to remote tarballs.'
+                                             'Trying to install a collection from a remote tarball or remote git repository will result in an error. '
+                                             'Download remote artifacts first and reference these in your requirements.yml so the dependency resolver '
+                                             'can use a local copy.'
                                         )
         else:
             install_parser.add_argument('-r', '--role-file', dest='requirements',
