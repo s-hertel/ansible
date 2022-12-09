@@ -11,9 +11,10 @@ import contextlib
 import os
 import subprocess
 import sys
+import textwrap
 import typing as t
 
-from dataclasses import dataclass, fields as dc_fields
+from dataclasses import dataclass, fields as dc_fields, field
 from functools import partial
 from urllib.error import HTTPError, URLError
 
@@ -48,7 +49,7 @@ def run_gpg_verify(
     manifest_file,  # type: str
     signature,  # type: str
     keyring,  # type: str
-    display,  # type: Display
+    feedback,  # type: list[(str, str)]
 ):  # type: (...) -> tuple[str, int]
     status_fd_read, status_fd_write = os.pipe()
 
@@ -67,7 +68,7 @@ def run_gpg_verify(
         manifest_file,
     ]
     cmd_str = ' '.join(cmd)
-    display.vvvv(f"Running command '{cmd}'")
+    feedback.append(("vvvv", f"Running command '{cmd}'"))
 
     try:
         p = subprocess.Popen(
@@ -93,13 +94,12 @@ def run_gpg_verify(
 
     with os.fdopen(status_fd_read) as f:
         stdout = f.read()
-        display.vvvv(
-            f"stdout: \n{stdout}\nstderr: \n{stderr}\n(exit code {p.returncode})"
-        )
+        feedback.append(("vvvv", f"stdout: \n{stdout}\nstderr: \n{stderr}\n(exit code {p.returncode})"))
         return stdout, p.returncode
 
 
 def parse_gpg_errors(status_out):  # type: (str) -> t.Iterator[GpgBaseError]
+
     for line in status_out.splitlines():
         if not line:
             continue
@@ -280,3 +280,131 @@ GPG_ERROR_MAP = {
     'KEYREVOKED': GpgKeyRevoked,
     'NO_SECKEY': GpgNoSecKey,
 }
+
+
+@dataclass
+class SignatureResult:
+    fqcn: str
+    signature: str
+    file: str
+    keyring: str
+    ignore_signature_errors: list[str]
+
+    errors: list[GpgBaseError] = field(default_factory=list)
+    feedback: list[(str, str)] = field(default_factory=list)
+
+    _rc: int = 0
+    _stdout: str = None
+    _error_wrapper: textwrap.TextWrapper = None
+
+    success: bool = False
+    failed: bool = False
+    ignored: bool = False
+
+    def __post_init__(self):
+        self._verify()
+
+    def _report_unexpected(self):
+        return (
+            f"Unexpected error for '{self.fqcn}': "
+            f"GnuPG signature verification failed with the return code {self._rc} and output {self._stdout}"
+        )
+
+    def _report_expected(self):
+        header = f"Signature verification failed for '{self.fqcn}' (return code {self._rc}):"
+        return header + self._format_errors()
+
+    def _format_errors(self):
+        if self._error_wrapper is None:
+            self._error_wrapper = textwrap.TextWrapper(
+                initial_indent="    * ",  # 6 chars
+                subsequent_indent="      ",  # 6 chars
+            )
+
+        wrapped_reasons = [
+            '\n'.join(self._error_wrapper.wrap(reason))
+            for reason in self.errors
+        ]
+
+        return '\n' + '\n'.join(wrapped_reasons)
+
+    def report(self):
+        if not self.failed:
+            return
+
+        if self.errors:
+            return self._report_expected()
+
+        return self._report_unexpected()
+
+    def _verify(self):
+        self._stdout, self._rc = run_gpg_verify(self.file, self.signature, self.keyring, self.feedback)
+
+        any_ignored = False
+        for error in parse_gpg_errors(self._stdout):
+            status_code = list(GPG_ERROR_MAP.keys())[list(GPG_ERROR_MAP.values()).index(error.__class__)]
+            if status_code in self.ignore_signature_errors:
+                any_ignored = True
+                continue
+            self.errors.append(error.get_gpg_error_description())
+
+        if self.errors or (not any_ignored and self._rc != 0):
+            self.failed = True
+        elif any_ignored:
+            self.ignored = True
+        else:
+            self.success = True
+
+        if (report := self.report()) is not None:
+            self.feedback.append(('vvvv', report))
+
+@dataclass
+class SignatureResults:
+    strict: bool
+    required_all: bool
+    required_count: int
+    signatures: list[str]
+    ignore_signature_errors: list[str]
+    keyring: str
+    manifest_file: str
+
+    signature_results: list[SignatureResult] = field(default_factory=list)
+    feedback: list[(str, str)] = field(default_factory=list)
+    success: bool = False
+
+    def __post_init__(self):
+        self._verify_signatures()
+        self._verify()
+
+    @property
+    def _fqcn(self):
+        coll_path_parts = self.manifest_file.split(os.path.sep)
+        return '%s.%s' % (coll_path_parts[-3], coll_path_parts[-2])  # get 'ns' and 'coll' from /path/to/ns/coll/MANIFEST.json
+
+    def _verify_signatures(self):
+        self.signature_results.extend(
+            # VerifyResult(signature, self.manifest_file, self.keyring, self.ignore_signature_errors)
+            SignatureResult(self._fqcn, signature, self.manifest_file, self.keyring, self.ignore_signature_errors)
+            for signature in self.signatures
+        )
+
+    def _verify(self):
+        successful_results = [result for result in self.signature_results if result.success]
+        failed_results = [result for result in self.signature_results if result.failed]
+
+        failed_strict = self.strict and len(successful_results) == 0
+        failed_all = bool(self.required_all and failed_results)
+        failed_req = not self.required_all and self.signatures and self.required_count > len(successful_results)
+
+        if failed_strict or failed_all or failed_req:
+            for result in failed_results:
+                self.feedback.extend(result.feedback)
+            if failed_strict:
+                self.feedback.append(("display", f"Signature verification failed for '{self._fqcn}': no successful signatures"))
+            elif failed_all:
+                self.feedback.append(("display", f"Signature verification failed for '{self._fqcn}': some signatures failed"))
+            elif failed_req:
+                self.feedback.append(("display", f"Required {self.required_count} and only had {len(successful_results)} - {successful_results}"))
+                self.feedback.append(("display", f"Signature verification failed for '{self._fqcn}': fewer successful signatures than required"))
+        else:
+            self.success = True

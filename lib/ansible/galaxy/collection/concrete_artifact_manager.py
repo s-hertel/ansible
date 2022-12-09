@@ -371,7 +371,7 @@ class ConcreteArtifactsManager:
                 validate_certs,
                 keyring=keyring,
                 required_signature_count=required_signature_count,
-                ignore_signature_errors=ignore_signature_errors
+                ignore_signature_errors=ignore_signature_errors,
             )
         finally:
             rmtree(b_temp_path)

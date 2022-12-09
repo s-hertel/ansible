@@ -25,7 +25,7 @@ import typing as t
 
 from collections import namedtuple
 from contextlib import contextmanager
-from dataclasses import dataclass, fields as dc_fields
+from dataclasses import dataclass, fields as dc_fields, field
 from hashlib import sha256
 from io import BytesIO
 from importlib.metadata import distribution
@@ -94,10 +94,8 @@ from ansible.galaxy.collection.concrete_artifact_manager import (
 )
 from ansible.galaxy.collection.galaxy_api_proxy import MultiGalaxyAPIProxy
 from ansible.galaxy.collection.gpg import (
-    run_gpg_verify,
-    parse_gpg_errors,
     get_signature_from_source,
-    GPG_ERROR_MAP,
+    SignatureResults,
 )
 try:
     from ansible.galaxy.dependency_resolution import (
@@ -156,51 +154,151 @@ class ManifestControl:
                 super().__setattr__(field.name, field.type())
 
 
-class CollectionSignatureError(Exception):
-    def __init__(self, reasons=None, stdout=None, rc=None, ignore=False):
-        self.reasons = reasons
-        self.stdout = stdout
-        self.rc = rc
-        self.ignore = ignore
-
-        self._reason_wrapper = None
-
-    def _report_unexpected(self, collection_name):
-        return (
-            f"Unexpected error for '{collection_name}': "
-            f"GnuPG signature verification failed with the return code {self.rc} and output {self.stdout}"
-        )
-
-    def _report_expected(self, collection_name):
-        header = f"Signature verification failed for '{collection_name}' (return code {self.rc}):"
-        return header + self._format_reasons()
-
-    def _format_reasons(self):
-        if self._reason_wrapper is None:
-            self._reason_wrapper = textwrap.TextWrapper(
-                initial_indent="    * ",  # 6 chars
-                subsequent_indent="      ",  # 6 chars
-            )
-
-        wrapped_reasons = [
-            '\n'.join(self._reason_wrapper.wrap(reason))
-            for reason in self.reasons
-        ]
-
-        return '\n' + '\n'.join(wrapped_reasons)
-
-    def report(self, collection_name):
-        if self.reasons:
-            return self._report_expected(collection_name)
-
-        return self._report_unexpected(collection_name)
-
-
 # FUTURE: expose actual verify result details for a collection on this object, maybe reimplement as dataclass on py3.8+
+@dataclass
 class CollectionVerifyResult:
-    def __init__(self, collection_name):  # type: (str) -> None
-        self.collection_name = collection_name  # type: str
-        self.success = True  # type: bool
+    collection: t.Union[Candidate, Requirement]
+    expected: t.Union[Candidate, Requirement]
+
+    keyring: t.Optional[str]
+    required_successful_signature_count: str
+    ignore_signature_errors: list[str]
+
+    b_temp_tar_path: t.Optional[str]
+
+    feedback: list[(str, str)] = field(default_factory=list)
+    success: bool = True
+
+    def __post_init__(self):
+        if self.expected is not None and self.expected.is_dir and not _is_installed_collection_dir(self.expected.src):
+            raise TypeError
+        if not _is_installed_collection_dir(self.collection.src):
+            raise TypeError
+
+        self._verify_version()
+        self._verify_signatures()
+        self._verify_contents()
+
+    def _verify_version(self):
+        # local verify only
+        if self.expected is None:
+            return
+
+        if self.collection.ver != self.expected.ver:
+            self.success = False
+            self.feedback.append(("display", f"{self.collection.fqcn} has the version '{self.collection.ver}' but is being compared to '{self.expected.ver}'"))
+
+    def _verify_signatures(self):
+        b_collection_path = to_bytes(self.collection.src, errors='surrogate_or_strict')
+        manifest_file = os.path.join(to_text(b_collection_path, errors='surrogate_or_strict'), MANIFEST_FILENAME)
+
+        signatures = list(self.collection.signatures)
+        if self.expected is None and self.collection.source_info is not None:
+            signatures = [info["signature"] for info in self.collection.source_info["signatures"]] + signatures
+        elif self.expected is not None and self.expected.signatures:
+            signatures = list(self.expected.signatures) + signatures
+
+        if self.keyring is None and signatures:
+            warning = (
+                "The GnuPG keyring used for collection signature "
+                "verification was not configured but signatures were "
+                "provided by the Galaxy server. "
+                "Configure a keyring for ansible-galaxy to verify "
+                "the origin of the collection. "
+                "Skipping signature verification."
+            )
+            self.feedback.append(("warning", warning))
+        elif self.keyring is not None:
+            gpg_result = verify_file_signatures(
+                self.collection.fqcn, manifest_file, signatures, self.keyring, self.required_successful_signature_count, self.ignore_signature_errors
+            )
+            if gpg_result.success:
+                self.feedback.append(("vvvv", f"GnuPG signature verification succeeded, verifying contents of {self.collection}"))
+            else:
+                self.success = False
+
+    def _verify_contents(self):
+        b_collection_path = to_bytes(self.collection.src, errors='surrogate_or_strict')
+        modified_content = []  # type: list[ModifiedContent]
+
+        if self.b_temp_tar_path is not None:
+            get_json_from_validation_source = functools.partial(_get_json_from_tar_file, self.b_temp_tar_path)
+            get_hash_from_validation_source = functools.partial(_get_tar_file_hash, self.b_temp_tar_path)
+            self.feedback.append(('vvv', f"Remote collection cached as '{self.b_temp_tar_path}'"))
+        else:
+            # just seed it with the value from disk for --offline or when verifying the origin of the collection with gpg
+            get_json_from_validation_source = functools.partial(_get_json_from_installed_dir, b_collection_path)
+            get_hash_from_validation_source = functools.partial(_get_file_hash, b_collection_path)
+
+        manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
+
+        if self.b_temp_tar_path is not None:
+            # Verify the downloaded manifest hash matches the installed copy before verifying the file manifest
+            _verify_file_hash(b_collection_path, MANIFEST_FILENAME, manifest_hash, modified_content)
+
+        self.feedback.append(('display', f'MANIFEST.json hash: {manifest_hash}'))
+
+        manifest = get_json_from_validation_source(MANIFEST_FILENAME)
+
+        # Use the manifest to verify the file manifest checksum
+        file_manifest_data = manifest['file_manifest_file']
+        file_manifest_filename = file_manifest_data['name']
+        expected_hash = file_manifest_data['chksum_%s' % file_manifest_data['chksum_type']]
+
+        # Verify the file manifest before using it to verify individual files
+        _verify_file_hash(b_collection_path, file_manifest_filename, expected_hash, modified_content)
+        file_manifest = get_json_from_validation_source(file_manifest_filename)
+
+        collection_dirs = set()
+        collection_files = {
+            os.path.join(b_collection_path, b'MANIFEST.json'),
+            os.path.join(b_collection_path, b'FILES.json'),
+        }
+
+        # Use the file manifest to verify individual file checksums
+        for manifest_data in file_manifest['files']:
+            name = manifest_data['name']
+
+            if manifest_data['ftype'] == 'file':
+                collection_files.add(
+                    os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
+                )
+                expected_hash = manifest_data['chksum_%s' % manifest_data['chksum_type']]
+                _verify_file_hash(b_collection_path, name, expected_hash, modified_content)
+
+            if manifest_data['ftype'] == 'dir':
+                collection_dirs.add(
+                    os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
+                )
+
+        # Find any paths not in the FILES.json
+        for root, dirs, files in os.walk(b_collection_path):
+            for name in files:
+                full_path = os.path.join(root, name)
+                path = to_text(full_path[len(b_collection_path) + 1::], errors='surrogate_or_strict')
+
+                if full_path not in collection_files:
+                    modified_content.append(
+                        ModifiedContent(filename=path, expected='the file does not exist', installed='the file exists')
+                    )
+            for name in dirs:
+                full_path = os.path.join(root, name)
+                path = to_text(full_path[len(b_collection_path) + 1::], errors='surrogate_or_strict')
+
+                if full_path not in collection_dirs:
+                    modified_content.append(
+                        ModifiedContent(filename=path, expected='the directory does not exist', installed='the directory exists')
+                    )
+
+        if modified_content:
+            self.success = False
+            self.feedback.append(('display', f'Collection {self.collection.fqcn} contains modified content in the following files:'))
+            for content_change in modified_content:
+                self.feedback.append(('display', f'    {content_change.filename}'))
+                self.feedback.append(('v', f'    Expected: {content_change.expected}\n    Found: {content_change.installed}'))
+        else:
+            what = "are internally consistent with its manifest" if self.expected is None else "match the remote collection"
+            self.feedback.append(('display', f"Successfully verified that checksums for '{self.collection}' {what}."))
 
 
 def verify_local_collection(local_collection, remote_collection, artifacts_manager):
@@ -212,8 +310,6 @@ def verify_local_collection(local_collection, remote_collection, artifacts_manag
     :param artifacts_manager: Artifacts manager.
     :return: a collection verify result object.
     """
-    result = CollectionVerifyResult(local_collection.fqcn)
-
     b_collection_path = to_bytes(local_collection.src, errors='surrogate_or_strict')
 
     display.display("Verifying '{coll!s}'.".format(coll=local_collection))
@@ -222,238 +318,47 @@ def verify_local_collection(local_collection, remote_collection, artifacts_manag
         format(path=to_text(local_collection.src)),
     )
 
-    modified_content = []  # type: list[ModifiedContent]
-
-    verify_local_only = remote_collection is None
-
-    # partial away the local FS detail so we can just ask generically during validation
-    get_json_from_validation_source = functools.partial(_get_json_from_installed_dir, b_collection_path)
-    get_hash_from_validation_source = functools.partial(_get_file_hash, b_collection_path)
-
-    if not verify_local_only:
-        # Compare installed version versus requirement version
-        if local_collection.ver != remote_collection.ver:
-            err = (
-                "{local_fqcn!s} has the version '{local_ver!s}' but "
-                "is being compared to '{remote_ver!s}'".format(
-                    local_fqcn=local_collection.fqcn,
-                    local_ver=local_collection.ver,
-                    remote_ver=remote_collection.ver,
-                )
-            )
-            display.display(err)
-            result.success = False
-            return result
-
-    manifest_file = os.path.join(to_text(b_collection_path, errors='surrogate_or_strict'), MANIFEST_FILENAME)
-    signatures = list(local_collection.signatures)
-    if verify_local_only and local_collection.source_info is not None:
-        signatures = [info["signature"] for info in local_collection.source_info["signatures"]] + signatures
-    elif not verify_local_only and remote_collection.signatures:
-        signatures = list(remote_collection.signatures) + signatures
-
-    keyring_configured = artifacts_manager.keyring is not None
-    if not keyring_configured and signatures:
-        display.warning(
-            "The GnuPG keyring used for collection signature "
-            "verification was not configured but signatures were "
-            "provided by the Galaxy server. "
-            "Configure a keyring for ansible-galaxy to verify "
-            "the origin of the collection. "
-            "Skipping signature verification."
-        )
-    elif keyring_configured:
-        if not verify_file_signatures(
-            local_collection.fqcn,
-            manifest_file,
-            signatures,
-            artifacts_manager.keyring,
-            artifacts_manager.required_successful_signature_count,
-            artifacts_manager.ignore_signature_errors,
-        ):
-            result.success = False
-            return result
-        display.vvvv(f"GnuPG signature verification succeeded, verifying contents of {local_collection}")
-
-    if verify_local_only:
-        # since we're not downloading this, just seed it with the value from disk
-        manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
-    elif keyring_configured and remote_collection.signatures:
-        manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
-    else:
-        # fetch remote
+    b_temp_tar_path = None
+    if remote_collection is not None and not (artifacts_manager.keyring is not None and remote_collection.signatures):
+        # fetch remote if we cannot verify the origin using gpg
         b_temp_tar_path = (  # NOTE: AnsibleError is raised on URLError
             artifacts_manager.get_artifact_path
             if remote_collection.is_concrete_artifact
             else artifacts_manager.get_galaxy_artifact_path
         )(remote_collection)
 
-        display.vvv(
-            u"Remote collection cached as '{path!s}'".format(path=to_text(b_temp_tar_path))
-        )
+    result = CollectionVerifyResult(
+        local_collection,
+        remote_collection,
+        artifacts_manager.keyring,
+        artifacts_manager.required_successful_signature_count,
+        artifacts_manager.ignore_signature_errors,
+        b_temp_tar_path,
+    )
 
-        # partial away the tarball details so we can just ask generically during validation
-        get_json_from_validation_source = functools.partial(_get_json_from_tar_file, b_temp_tar_path)
-        get_hash_from_validation_source = functools.partial(_get_tar_file_hash, b_temp_tar_path)
-
-        # Verify the downloaded manifest hash matches the installed copy before verifying the file manifest
-        manifest_hash = get_hash_from_validation_source(MANIFEST_FILENAME)
-        _verify_file_hash(b_collection_path, MANIFEST_FILENAME, manifest_hash, modified_content)
-
-    display.display('MANIFEST.json hash: {manifest_hash}'.format(manifest_hash=manifest_hash))
-
-    manifest = get_json_from_validation_source(MANIFEST_FILENAME)
-
-    # Use the manifest to verify the file manifest checksum
-    file_manifest_data = manifest['file_manifest_file']
-    file_manifest_filename = file_manifest_data['name']
-    expected_hash = file_manifest_data['chksum_%s' % file_manifest_data['chksum_type']]
-
-    # Verify the file manifest before using it to verify individual files
-    _verify_file_hash(b_collection_path, file_manifest_filename, expected_hash, modified_content)
-    file_manifest = get_json_from_validation_source(file_manifest_filename)
-
-    collection_dirs = set()
-    collection_files = {
-        os.path.join(b_collection_path, b'MANIFEST.json'),
-        os.path.join(b_collection_path, b'FILES.json'),
-    }
-
-    # Use the file manifest to verify individual file checksums
-    for manifest_data in file_manifest['files']:
-        name = manifest_data['name']
-
-        if manifest_data['ftype'] == 'file':
-            collection_files.add(
-                os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
-            )
-            expected_hash = manifest_data['chksum_%s' % manifest_data['chksum_type']]
-            _verify_file_hash(b_collection_path, name, expected_hash, modified_content)
-
-        if manifest_data['ftype'] == 'dir':
-            collection_dirs.add(
-                os.path.join(b_collection_path, to_bytes(name, errors='surrogate_or_strict'))
-            )
-
-    # Find any paths not in the FILES.json
-    for root, dirs, files in os.walk(b_collection_path):
-        for name in files:
-            full_path = os.path.join(root, name)
-            path = to_text(full_path[len(b_collection_path) + 1::], errors='surrogate_or_strict')
-
-            if full_path not in collection_files:
-                modified_content.append(
-                    ModifiedContent(filename=path, expected='the file does not exist', installed='the file exists')
-                )
-        for name in dirs:
-            full_path = os.path.join(root, name)
-            path = to_text(full_path[len(b_collection_path) + 1::], errors='surrogate_or_strict')
-
-            if full_path not in collection_dirs:
-                modified_content.append(
-                    ModifiedContent(filename=path, expected='the directory does not exist', installed='the directory exists')
-                )
-
-    if modified_content:
-        result.success = False
-        display.display(
-            'Collection {fqcn!s} contains modified content '
-            'in the following files:'.
-            format(fqcn=to_text(local_collection.fqcn)),
-        )
-        for content_change in modified_content:
-            display.display('    %s' % content_change.filename)
-            display.v("    Expected: %s\n    Found: %s" % (content_change.expected, content_change.installed))
-    else:
-        what = "are internally consistent with its manifest" if verify_local_only else "match the remote collection"
-        display.display(
-            "Successfully verified that checksums for '{coll!s}' {what!s}.".
-            format(coll=local_collection, what=what),
-        )
+    for method, message in result.feedback:
+        display_method = getattr(display, method)
+        display_method(message)
 
     return result
 
 
 def verify_file_signatures(fqcn, manifest_file, detached_signatures, keyring, required_successful_count, ignore_signature_errors):
-    # type: (str, str, list[str], str, str, list[str]) -> bool
-    successful = 0
-    error_messages = []
-
+    # type: (str, str, list[str], str, str, list[str]) -> SignatureResults
     signature_count_requirements = re.match(SIGNATURE_COUNT_RE, required_successful_count).groupdict()
-
     strict = signature_count_requirements['strict'] or False
-    require_all = signature_count_requirements['all']
     require_count = signature_count_requirements['count']
     if require_count is not None:
         require_count = int(require_count)
 
-    for signature in detached_signatures:
-        signature = to_text(signature, errors='surrogate_or_strict')
-        try:
-            verify_file_signature(manifest_file, signature, keyring, ignore_signature_errors)
-        except CollectionSignatureError as error:
-            if error.ignore:
-                # Do not include ignored errors in either the failed or successful count
-                continue
-            error_messages.append(error.report(fqcn))
-        else:
-            successful += 1
+    signatures = [to_text(signature, errors='surrogate_or_strict') for signature in detached_signatures]
+    result = SignatureResults(strict, signature_count_requirements['all'], require_count, signatures, ignore_signature_errors, keyring, manifest_file)
 
-            if require_all:
-                continue
+    for display_method_name, msg in result.feedback:
+        display_method = getattr(display, display_method_name)
+        display_method(msg)
 
-            if successful == require_count:
-                break
-
-    if strict and not successful:
-        verified = False
-        display.display(f"Signature verification failed for '{fqcn}': no successful signatures")
-    elif require_all:
-        verified = not error_messages
-        if not verified:
-            display.display(f"Signature verification failed for '{fqcn}': some signatures failed")
-    else:
-        verified = not detached_signatures or require_count == successful
-        if not verified:
-            display.display(f"Signature verification failed for '{fqcn}': fewer successful signatures than required")
-
-    if not verified:
-        for msg in error_messages:
-            display.vvvv(msg)
-
-    return verified
-
-
-def verify_file_signature(manifest_file, detached_signature, keyring, ignore_signature_errors):
-    # type: (str, str, str, list[str]) -> None
-    """Run the gpg command and parse any errors. Raises CollectionSignatureError on failure."""
-    gpg_result, gpg_verification_rc = run_gpg_verify(manifest_file, detached_signature, keyring, display)
-
-    if gpg_result:
-        errors = parse_gpg_errors(gpg_result)
-        try:
-            error = next(errors)
-        except StopIteration:
-            pass
-        else:
-            reasons = []
-            ignored_reasons = 0
-
-            for error in chain([error], errors):
-                # Get error status (dict key) from the class (dict value)
-                status_code = list(GPG_ERROR_MAP.keys())[list(GPG_ERROR_MAP.values()).index(error.__class__)]
-                if status_code in ignore_signature_errors:
-                    ignored_reasons += 1
-                reasons.append(error.get_gpg_error_description())
-
-            ignore = len(reasons) == ignored_reasons
-            raise CollectionSignatureError(reasons=set(reasons), stdout=gpg_result, rc=gpg_verification_rc, ignore=ignore)
-
-    if gpg_verification_rc:
-        raise CollectionSignatureError(stdout=gpg_result, rc=gpg_verification_rc)
-
-    # No errors and rc is 0, verify was successful
-    return None
+    return result
 
 
 def build_collection(u_collection_path, u_output_path, force):
@@ -1510,7 +1415,7 @@ def verify_artifact_manifest(manifest_file, signatures, keyring, required_signat
     failed_verify = False
     coll_path_parts = to_text(manifest_file, errors='surrogate_or_strict').split(os.path.sep)
     collection_name = '%s.%s' % (coll_path_parts[-3], coll_path_parts[-2])  # get 'ns' and 'coll' from /path/to/ns/coll/MANIFEST.json
-    if not verify_file_signatures(collection_name, manifest_file, signatures, keyring, required_signature_count, ignore_signature_errors):
+    if not verify_file_signatures(collection_name, manifest_file, signatures, keyring, required_signature_count, ignore_signature_errors).success:
         raise AnsibleError(f"Not installing {collection_name} because GnuPG signature verification failed.")
     display.vvvv(f"GnuPG signature verification succeeded for {collection_name}")
 
