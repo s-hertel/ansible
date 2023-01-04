@@ -1069,6 +1069,7 @@ class Jinja2Loader(PluginLoader):
 
         super(Jinja2Loader, self).__init__(class_name, package, config, subdir, aliases=aliases, required_base_class=required_base_class)
         self._loaded_j2_file_maps = []
+        self._loaded_all = False
 
     def _clear_caches(self):
         super(Jinja2Loader, self)._clear_caches()
@@ -1141,15 +1142,21 @@ class Jinja2Loader(PluginLoader):
         name = name.removeprefix('ansible.legacy.')
 
         if '.' not in name:
+            if not self._loaded_all:
+                list(self.all(*args, **kwargs))
+
             # Filter/tests must always be FQCN except builtin and legacy
-            for known_plugin in self.all(*args, **kwargs):
-                if known_plugin.matches_name([name]):
-                    context.resolved = True
-                    context.plugin_resolved_name = name
-                    context.plugin_resolved_path = known_plugin._original_path
-                    context.plugin_resolved_collection = 'ansible.builtin' if known_plugin.ansible_name.startswith('ansible.builtin.') else ''
-                    context._resolved_fqcn = known_plugin.ansible_name
-                    return get_with_context_result(known_plugin, context)
+            known_plugin = self._module_cache.get(
+                name,
+                self._module_cache.get(f'ansible.builtin.{name}')
+            )
+            if known_plugin:
+                context.resolved = True
+                context.plugin_resolved_name = name
+                context.plugin_resolved_path = known_plugin._original_path
+                context.plugin_resolved_collection = 'ansible.builtin' if known_plugin.ansible_name.startswith('ansible.builtin.') else ''
+                context._resolved_fqcn = known_plugin.ansible_name
+                return get_with_context_result(known_plugin, context)
 
         plugin = None
         key, leaf_key = get_fqcr_and_name(name)
@@ -1216,6 +1223,13 @@ class Jinja2Loader(PluginLoader):
                 key = next_key
             else:
                 break
+
+        if key.startswith('ansible.builtin.'):
+            # Short-circuit the loop below (intended for collections).
+            # If there is no redirect from ansible.builtin, this should be in all().
+            if not self._loaded_all:
+                list(self.all(*args, **kwargs))
+            return get_with_context_result(self._module_cache.get(key), context)
 
         try:
             pkg = import_module(acr.n_python_package_name)
