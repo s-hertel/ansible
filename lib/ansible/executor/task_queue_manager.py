@@ -75,6 +75,11 @@ class PromptSend:
     interrupt_input: t.Callable[[str, str], bool] = None
     complete_input: t.Callable[[str, str], bool] = None
 
+    kwargs: t.Mapping = field(init=False, default_factory=dict)
+
+    def __post_init__(self):
+        self.kwargs = dict(echo=self.echo, seconds=self.seconds, interrupt_input=self.interrupt_input, complete_input=self.complete_input)
+
 
 class FinalQueue(multiprocessing.queues.Queue):
     def __init__(self, *args, **kwargs):

@@ -130,8 +130,8 @@ def results_thread_main(strategy):
                     strategy._results.append(result)
             elif isinstance(result, PromptSend):
                 if multiprocessing_context.parent_process() is None:
-                    value = display.do_non_blocking_read_until(result.echo, result.seconds, result.interrupt_input, result.complete_input)
-                    strategy._worker_queues[result.worker_id].put(value)
+                    response_queue = strategy._worker_queues[result.worker_id]
+                    strategy._tqm.send_callback('v2_runner_on_intermediate_prompt', response_queue, result.kwargs)
             else:
                 display.warning('Received an invalid object (%s) in the result queue: %r' % (type(result), result))
         except (IOError, EOFError):
