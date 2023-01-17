@@ -10,6 +10,32 @@ class ModuleDocFragment(object):
 
     DOCUMENTATION = r'''
     options:
+      inherit_task_name_max_count:
+        default: 1
+        type: int
+        env:
+          - name: ANSIBLE_CALLBACK_INHERIT_TASK_MAX_COUNT
+        ini:
+          - section: defaults
+            key: callback_inherit_task_name_max_count
+      inherit_task_name_from:
+        name: The components used for the displayed task name
+        description:
+          - Prepend the displayed task name with non-implicit play/role/block/task names in the dependency chain.
+          - Meta tasks aren't affected by this setting.
+        default: ['Role']
+        type: list
+        elements: str
+        choices:
+          - Role
+          - Task
+          - Block
+          - Play
+        env:
+          - name: ANSIBLE_CALLBACK_INHERIT_TASK_NAME_FROM
+        ini:
+          - section: defaults
+            key: callback_inherit_task_name_from
       result_format:
         name: Format of the task result
         description:

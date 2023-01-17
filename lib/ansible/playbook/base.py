@@ -763,6 +763,27 @@ class Base(FieldAttributeBase):
                 pass
         return path
 
+    def get_constructed_dep_chain(self, inherit_parent_names):
+        name = []  # a list of <= 1 except for IncludeRole (<= 2) because Role objects are not in the _parent chain
+        dep_chain = []
+
+        task_classes = ["Task", "Handler", "TaskInclude", "IncludeRole", "HandlerTaskInclude"]
+        if 'Task' in inherit_parent_names and self.__class__.__name__ in task_classes and not self.implicit:
+            name = [self.get_name(include_role_fqcn=False)]
+        elif 'Block' in inherit_parent_names and self.__class__.__name__ == 'Block' and not self._implicit:
+            name = [self.name.strip()] if self.name and self.name.strip() else []
+
+        if 'Role' in inherit_parent_names and self.__class__.__name__ == 'IncludeRole':
+            name.append(self._role_name)
+
+        if hasattr(self, '_parent'):
+            if self._parent:
+                dep_chain = self._parent.get_constructed_dep_chain(inherit_parent_names)
+            elif hasattr(self, '_play'):
+                dep_chain = [self._play.name.strip()] if self._play.name and self._play.name.strip() else []
+
+        return dep_chain + name
+
     def get_dep_chain(self):
 
         if hasattr(self, '_parent') and self._parent:

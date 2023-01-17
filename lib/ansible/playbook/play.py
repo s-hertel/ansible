@@ -143,11 +143,8 @@ class Play(Base, Taggable, CollectionSearch):
             return self.name
 
         if is_sequence(self.hosts):
-            self.name = ','.join(self.hosts)
-        else:
-            self.name = self.hosts or ''
-
-        return self.name
+            return ','.join(self.hosts)
+        return self.hosts or ''
 
     @staticmethod
     def load(data, variable_manager=None, loader=None, vars=None):

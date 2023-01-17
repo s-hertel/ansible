@@ -156,7 +156,10 @@ class CallbackModule(CallbackBase):
             # task title from a previous non-free play
             self._last_task_name = None
         else:
-            self._last_task_name = task.get_name().strip()
+            inherit_from = self.get_option('inherit_task_name_from')
+            inherit_max_count = self.get_option('inherit_task_name_max_count')
+            include_role_fqcn = inherit_from == ['Role'] and inherit_max_count == 1
+            task_name = task.get_name(include_role_fqcn=include_role_fqcn, inherit_parent_names=inherit_from, inherit_max_count=inherit_max_count)
 
             # Display the task banner immediately if we're not doing any filtering based on task result
             if self.get_option('display_skipped_hosts') and self.get_option('display_ok_hosts'):
@@ -181,7 +184,10 @@ class CallbackModule(CallbackBase):
         # Use cached task name
         task_name = self._last_task_name
         if task_name is None:
-            task_name = task.get_name().strip()
+            inherit_from = self.get_option('inherit_task_name_from')
+            inherit_max_count = self.get_option('inherit_task_name_max_count')
+            include_role_fqcn = inherit_from == ['Role'] and inherit_max_count == 1
+            task_name = task.get_name(include_role_fqcn=include_role_fqcn, inherit_parent_names=inherit_from, inherit_max_count=inherit_max_count)
 
         if task.check_mode and self.get_option('check_mode_markers'):
             checkmsg = " [CHECK MODE]"

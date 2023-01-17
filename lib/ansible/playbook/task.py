@@ -101,8 +101,13 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
 
         super(Task, self).__init__()
 
-    def get_name(self, include_role_fqcn=True):
+    def get_name(self, include_role_fqcn=True, inherit_parent_names=None, inherit_max_count=1):
         ''' return the name of the task '''
+        if include_role_fqcn is False and inherit_parent_names is not None:
+            closest_to_distant_names = self._parent.get_constructed_dep_chain(inherit_parent_names)[::-1]
+            # remove most distant names if inherit_max_count is exceeded
+            inherit_names = closest_to_distant_names[:inherit_max_count][::-1]
+            return " : ".join([*inherit_names, self.name.strip() if self.name.strip() else self.action])
 
         if self._role:
             role_name = self._role.get_name(include_role_fqcn=include_role_fqcn)
