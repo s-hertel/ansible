@@ -43,7 +43,7 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
     for reading later.
     '''
 
-    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj, prompt_response_q, worker_id):
+    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj, intermediate_q, worker_id):
 
         super(WorkerProcess, self).__init__()
         # takes a task queue manager as the sole param:
@@ -61,7 +61,7 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
         self._loader._tempfiles = set()
 
         from ansible.executor.process import worker_sync
-        worker_sync.worker_queue = prompt_response_q
+        worker_sync.worker_queue = intermediate_q
         worker_sync.worker_id = worker_id
 
     @property
