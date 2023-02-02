@@ -1,0 +1,9 @@
+minor_changes:
+  - pause - get user input from the main results thread instead of accessing sys.stdin in the worker process.
+  - paramiko_ssh - get user input from the main results thread instead of accessing sys.stdin in the worker process.
+deprecated_features:
+  - >-
+    The ConnectionBase()._new_stdin attribute is deprecated.
+    Plugins should send a prompt to the main results thread rather than access stdin directly.
+    Use the ``send_prompt`` function and ``worker_queue`` from ``ansible.executor.process.worker_sync``.
+    You will need to import these within the WorkerProcess.
