@@ -109,7 +109,7 @@ def test_Display_display_fork():
         display.set_queue(queue)
         display.display('foo')
         queue.send_display.assert_called_once_with(
-            'foo', color=None, stderr=False, screen_only=False, log_only=False, newline=True
+            'foo', color=None, stderr=False, screen_only=False, log_only=False, newline=True, flush=False
         )
 
     p = multiprocessing_context.Process(target=test)

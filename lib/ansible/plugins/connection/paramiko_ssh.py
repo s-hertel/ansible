@@ -310,7 +310,7 @@ class MyAddPolicy(object):
                 inp = input(AUTHENTICITY_MSG % (hostname, ktype, fingerprint))
                 sys.stdin = old_stdin
             else:
-                display.display(AUTHENTICITY_MSG % (hostname, ktype, fingerprint))
+                display.display(AUTHENTICITY_MSG % (hostname, ktype, fingerprint), flush=True)  # input() flushes stdout
 
                 from ansible.executor.process.worker_sync import worker_queue, send_prompt
                 send_prompt(echo=False)
