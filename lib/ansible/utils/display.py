@@ -35,7 +35,9 @@ import errno
 import fcntl
 import getpass
 import logging
+import multiprocessing
 import os
+import queue
 import random
 import subprocess
 import sys
@@ -601,7 +603,16 @@ class Display(metaclass=Singleton):
             tty_size = 0
         self.columns = max(79, tty_size - 1)
 
-    def do_non_blocking_read_until(
+    def stop_prompt(self, pid):
+        pid_tty = '/proc/{}/fd/0'.format(pid)
+        try:
+            with open(pid_tty, 'w') as pid_tty_fd:
+                fcntl.ioctl(pid_tty_fd, termios.TIOCSTI, '\n')
+        except FileNotFoundError:
+            # race condition, took care of itself
+            pass
+
+    def do_read_until(
         self,
         echo=False,  # type: bool
         seconds=None,  # type: int
@@ -622,7 +633,9 @@ class Display(metaclass=Singleton):
             raise AnsiblePromptNoninteractive('stdin is not interactive')
 
         result = b''
-        with self._lock:
+        # FIXME
+        # with self._lock:
+        if True:
             original_stdin_settings = termios.tcgetattr(self._stdin_fd)
             try:
                 setup_prompt(self._stdin_fd, self._stdout_fd, seconds, echo)
@@ -631,20 +644,45 @@ class Display(metaclass=Singleton):
                 # are read in below
                 termios.tcflush(self._stdin, termios.TCIFLUSH)
 
-                result = self._read_non_blocking_stdin(echo=echo, seconds=seconds, interrupt_input=interrupt_input, complete_input=complete_input)
+                start = time.time()
+                inp_queue = multiprocessing.queues.Queue(ctx=multiprocessing_context)
+                force_stop = multiprocessing.Value('i')
+                inp_thread = threading.Thread(
+                    target=self._read_stdin, args=(echo, seconds, interrupt_input, complete_input, inp_queue, force_stop), daemon=True
+                )
+                inp_thread.start()
+
+                while seconds is None or (time.time() - start < seconds):
+                    try:
+                        result = inp_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    else:
+                        inp_thread.join()
+                        break
+                else:
+                    self.stop_prompt(force_stop.value)
+                    result = None
+
+                inp_thread.join()
             finally:
                 # restore the old settings for the duped stdin stdin_fd
                 termios.tcsetattr(self._stdin_fd, termios.TCSADRAIN, original_stdin_settings)
 
+        if isinstance(result, AnsibleError):
+            raise result
         return result
 
-    def _read_non_blocking_stdin(
+    def _read_stdin(
         self,
         echo=False,  # type: bool
         seconds=None,  # type: int
         interrupt_input=None,  # type: t.Callable[[bytes, bytes], bool]
         complete_input=None,  # type: t.Callable[[bytes, bytes], bool]
-    ):  # type: (...) -> bytes
+        result_queue=None,  # type: multiprocessing.queues.Queue
+        force_stop=None,  # type: multiprocessing.Value
+    ):  # type: (...) -> None
+        force_stop.value = os.getpid()
 
         if seconds is not None:
             start = time.time()
@@ -661,23 +699,22 @@ class Display(metaclass=Singleton):
 
         result_string = b''
         while seconds is None or (time.time() - start < seconds):
-            key_pressed = None
             try:
-                os.set_blocking(self._stdin_fd, False)
-                while key_pressed is None and (seconds is None or (time.time() - start < seconds)):
-                    key_pressed = self._stdin.read(1)
-            finally:
-                os.set_blocking(self._stdin_fd, True)
-                if key_pressed is None:
-                    key_pressed = b''
-
+                key_pressed = self._stdin.read(1)
+            except KeyboardInterrupt:
+                try:
+                    key_pressed = termios.tcgetattr(sys.stdin.buffer.fileno())[6][termios.VINTR]
+                except Exception:
+                    key_pressed = b'\x03'
             if interrupt_input(key_pressed, result_string):
                 clear_line(self._stdout)
-                raise AnsiblePromptInterrupt('user interrupt')
+                result_string = AnsiblePromptInterrupt('user interrupt')
+                break
             if complete_input(key_pressed, result_string):
                 clear_line(self._stdout)
                 break
-            elif key_pressed in backspace_sequences:
+
+            if key_pressed in backspace_sequences:
                 clear_line(self._stdout)
                 result_string = result_string[:-1]
                 if echo:
@@ -685,7 +722,8 @@ class Display(metaclass=Singleton):
                 self._stdout.flush()
             else:
                 result_string += key_pressed
-        return result_string
+
+        result_queue.put(result_string)
 
     @property
     def _stdin(self):
