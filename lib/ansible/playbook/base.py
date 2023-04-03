@@ -732,6 +732,7 @@ class Base(FieldAttributeBase):
     # flags and misc. settings
     environment = FieldAttribute(isa='list', extend=True, prepend=True)
     no_log = FieldAttribute(isa='bool')
+    # NOTE: _post_validate_run_once isn't called unless always_post_validate=True. It's not necessary since we have to validate manually earlier.
     run_once = FieldAttribute(isa='bool')
     ignore_errors = FieldAttribute(isa='bool')
     ignore_unreachable = FieldAttribute(isa='bool')
@@ -792,3 +793,32 @@ class Base(FieldAttributeBase):
             path_stack.append(task_dir)
 
         return path_stack
+
+    # NOTE: we only call this manually, but using this special attr name allows subclasses to call it as-is instead of _CLASSTYPE_some_non_special_attr
+    def _post_validate_run_once(self, attr, value, templar):
+        name = 'run_once'
+        omit = False
+        if templar.is_template(value):
+            try:
+                _templated_value = templar.template(value)
+            except (AnsibleUndefinedVariable, UndefinedError) as e:
+                if templar._fail_on_undefined_errors:
+                    msg = "The field '%s' has an invalid value, which includes an undefined variable. The error was: %s" % (name, to_native(e))
+                    raise AnsibleParserError(msg, obj=self.get_ds(), orig_exc=e)
+
+            omit_value = templar.available_variables.get('omit')
+            if omit_value is not None and _templated_value == omit_value:
+                omit = True
+                self.set_to_context("run_once")
+            else:
+                value = _templated_value
+
+        # set the value since we call this from strategy plugins before post validation
+        # (this isn't called from post_validate also, since type 'bool' would need always_post_validate=True)
+        if value is not None and not omit:
+            try:
+                setattr(self, 'run_once', boolean(value, strict=True))
+            except (TypeError, ValueError) as e:
+                raise AnsibleParserError("the field '%s' has an invalid value (%s), and could not be converted to an %s."
+                                         "The error was: %s" % (name, value, attr.isa, e), obj=self.get_ds(), orig_exc=e)
+        return value

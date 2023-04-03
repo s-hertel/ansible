@@ -162,6 +162,7 @@ class StrategyModule(StrategyBase):
                             # we don't care if it just shows the raw name
                             display.debug("templating failed for some reason", host=host_name)
 
+                        task._post_validate_run_once(task.fattributes.get('run_once'), task.run_once, templar)
                         run_once = templar.template(task.run_once) or action and getattr(action, 'BYPASS_HOST_LOOP', False)
                         if run_once:
                             if action and getattr(action, 'BYPASS_HOST_LOOP', False):
