@@ -275,19 +275,19 @@ class Task(Base, Conditional, Taggable, CollectionSearch, Notifiable, Delegatabl
         if not isinstance(value, list):
             setattr(self, name, [value])
 
-    def post_validate(self, templar):
+    def post_validate(self, templar, field_attribute=None):
         '''
         Override of base class post_validate, to also do final validation on
         the block and task include (if any) to which this task belongs.
         '''
 
         if self._parent:
-            self._parent.post_validate(templar)
+            self._parent.post_validate(templar, field_attribute=field_attribute)
 
         if AnsibleCollectionConfig.default_collection:
             pass
 
-        super(Task, self).post_validate(templar)
+        super(Task, self).post_validate(templar, field_attribute=field_attribute)
 
     def _post_validate_loop(self, attr, value, templar):
         '''

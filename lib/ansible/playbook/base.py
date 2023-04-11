@@ -534,7 +534,7 @@ class FieldAttributeBase:
         last = False
 
         # sort by priority
-        for (name, attribute) in sorted(self.fattributes.items(), key=lambda i: i[1].priority):
+        for (name, attribute) in sorted(self.fattributes.items(), key=lambda i: i[1].priority, reverse=True):
 
             # only process until the field we need
             if last:
@@ -617,7 +617,8 @@ class FieldAttributeBase:
             # attribute._finalized = True
 
         # finalized the whole object
-        self._finalized = True
+        if field_attribute is None:
+            self._finalized = True
 
     def _load_vars(self, attr, ds):
         '''
