@@ -23,6 +23,24 @@ DOCUMENTATION = '''
           Unlike host lines, C(:vars) sections accept only a single entry per line, so everything after the C(=) must be the value for the entry.
         - Do not rely on types set during definition, always make sure you specify type with a filter when needed when consuming the variable.
         - See the Examples for proper quoting to prevent changes to variable type.
+    options:
+      unresolved_reference:
+        description:
+          - By default, groups must be defined before they are used by parent groups or have variables assigned to them.
+          - If there are unresolved references, this plugin will fail to parse the inventory, since it could mean
+            there is an issue with the load order :ref:`inventory_directory` or a typo in the inventory.
+          - This can be configured to C(warn) or C(ignore) to create the missing groups instead of failing.
+        choices:
+          - error
+          - warn
+          - ignore
+        default: error
+        ini:
+          - section: inventory.ini
+            key: unresolved_reference
+        env:
+          - name: ANSIBLE_INI_UNRESOLVED_REFERENCE
+        version_added: "2.17"
     notes:
         - Enabled in configuration by default.
         - Consider switching to YAML format for inventory sources to avoid confusion on the actual type of a variable.
@@ -240,18 +258,40 @@ class InventoryModule(BaseFileInventoryPlugin):
 
         # Any entries in pending_declarations not removed by a group declaration above mean that there was an unresolved reference.
         # We report only the first such error here.
-        for g in pending_declarations:
+        unresolved_reference = self.get_option('unresolved_reference')
+
+        child_declarations = []
+        var_declarations = []
+        for g in list(pending_declarations):
             decl = pending_declarations[g]
             if decl['state'] == 'vars':
-                raise AnsibleError("%s:%d: Section [%s:vars] not valid for undefined group: %s" % (path, decl['line'], decl['name'], decl['name']))
+                var_declarations.append(decl)
+                msg = "%s:%d: Section [%s:vars] not valid for undefined group: %s" % (path, decl['line'], decl['name'], decl['name'])
             elif decl['state'] == 'children':
-                raise AnsibleError("%s:%d: Section [%s:children] includes undefined group: %s" % (path, decl['line'], decl['parents'].pop(), decl['name']))
+                child_declarations.append(decl)
+                msg = "%s:%d: Section [%s:children] includes undefined group: %s" % (path, decl['line'], decl['parents'], decl['name'])
+
+            if unresolved_reference == 'error':
+                raise AnsibleError(msg)
+            elif unresolved_reference == 'warn':
+                self.display.warning(msg)
+
+        for g in child_declarations:
+            self._add_pending_children(g['name'], pending_declarations)
+
+        for decl in var_declarations:
+            if decl['name'] not in self.inventory.groups:
+                self.inventory.add_group(decl['name'])
+                for k, v in decl['vars']:
+                    self.inventory.set_variable(decl['name'], k, v)
 
     def _add_pending_children(self, group, pending):
         for parent in pending[group]['parents']:
-            self.inventory.add_child(parent, group)
             if parent in pending and pending[parent]['state'] == 'children':
                 self._add_pending_children(parent, pending)
+            if not group in self.inventory.groups:
+                self.inventory.add_group(group)
+            self.inventory.add_child(parent, group)
         del pending[group]
 
     def _parse_group_name(self, line):
