@@ -257,6 +257,7 @@ skipped_paths:
     version_added: '2.12'
 '''
 
+import errno
 import fnmatch
 import grp
 import os
@@ -434,6 +435,8 @@ def statinfo(st):
 
 
 def handle_walk_errors(e):
+    if e.errno in (errno.EPERM, errno.EACCES):
+        return
     raise e
 
 
