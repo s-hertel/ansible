@@ -48,9 +48,37 @@
         - dpkg_result is successful
         - dpkg_result.rc == 0
 
-  always:
-    - name: uninstall echo-hello with apt
+    - name: Install deb file with recommends from URL
       apt:
-        pkg: echo-hello
+        deb: https://github.com/Akasurde/git_demo/raw/master/bar.deb
+        install_recommends: yes
+      register: apt_url_deps
+
+    - name: check to make sure we installed the package
+      shell: dpkg -l | grep bar
+      failed_when: False
+      register: bar_dpkg_result
+
+    - name: check to make sure we installed the package's recommends
+      shell: dpkg -l | grep rolldice
+      failed_when: False
+      register: vim_tiny_dpkg_result
+
+    - name: verify real installation of bar
+      assert:
+        that:
+        - apt_url_deps is changed
+        - bar_dpkg_result is successful
+        - bar_dpkg_result.rc == 0
+        - vim_tiny_dpkg_result is successful
+        - vim_tiny_dpkg_result.rc == 0
+
+  always:
+    - name: uninstall packages with apt
+      apt:
+        pkg:
+          - echo-hello
+          - rolldice
+          - bar
         state: absent
         purge: yes
