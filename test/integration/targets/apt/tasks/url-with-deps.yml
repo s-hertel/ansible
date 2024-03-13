@@ -50,17 +50,17 @@
 
     - name: Install deb file with recommends from URL
       apt:
-        deb: https://github.com/Akasurde/git_demo/raw/master/bar.deb
+        deb: "{{ repodir }}/dists/stable/main/binary-all/bar_0.0.1_amd64.deb"
         install_recommends: yes
       register: apt_url_deps
 
     - name: check to make sure we installed the package
-      shell: dpkg -l | grep bar
+      shell: dpkg -l bar
       failed_when: False
       register: bar_dpkg_result
 
     - name: check to make sure we installed the package's recommends
-      shell: dpkg -l | grep rolldice
+      shell: dpkg -l rolldice
       failed_when: False
       register: vim_tiny_dpkg_result
 

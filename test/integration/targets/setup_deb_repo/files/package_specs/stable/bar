@@ -1,0 +1,10 @@
+Section: devel
+Priority: optional
+Standards-Version: 2.3.3
+Package: bar
+Version: 0.0.1
+Architecture: amd64
+Maintainer: Ansible Maintainers <maintainers@example.com>
+Recommends: rolldice
+Description: example package to test in Ansible apt module
+Homepage: https://www.ansible.com/
