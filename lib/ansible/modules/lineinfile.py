@@ -242,7 +242,28 @@ EXAMPLES = r'''
     backrefs: yes
 '''
 
-RETURN = r'''#'''
+RETURN = r'''
+msg:
+    description: Details about the result of the operation.
+    returned: always
+    type: str
+    sample: line added
+backup:
+    description: the backupfile when backup=True, otherwise an empty string
+    returned: success and state=present
+    type: str
+    sample: "/tmp/file.933803.2024-03-25@10:04:07~"
+found:
+    description: the number of lines removed
+    returned: changed and state=absent
+    type: int
+    sample: 2
+rc:
+    description: Return code
+    returned: when dest does not exist and create=False and state=present
+    type: int
+    sample: 257
+'''
 
 import os
 import re
