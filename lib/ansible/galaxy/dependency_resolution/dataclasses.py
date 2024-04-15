@@ -648,7 +648,7 @@ class Candidate(
 
 @dataclass(frozen=True)
 class Artifact:
-    files: str = None
+    files_hash: str = None
 
     @classmethod
     @cache
@@ -689,7 +689,7 @@ class Artifact:
                 with open(os.path.join(root, filename), 'rb') as f:
                     content = f.read()
                 relative_path = os.path.relpath(os.path.join(root, filename), src)
-                files[relative_path] = io.BytesIO(content)
+                files[relative_path] = secure_hash_s(content, hash_func=sha256)
 
-        combined_content = b''.join(files[f].getvalue() for f in sorted(files))
+        combined_content = ''.join(files[f] for f in sorted(files))
         return cls(secure_hash_s(combined_content, hash_func=sha256))
