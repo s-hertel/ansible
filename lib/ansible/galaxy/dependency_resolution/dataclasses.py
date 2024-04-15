@@ -653,10 +653,10 @@ class Artifact:
     @classmethod
     @cache
     def load(cls, candidate):
-        if not candidate.is_dir:
+        if not candidate.is_dir or not (_is_installed_collection_dir(candidate.src) or _is_collection_src_dir(candidate.src)):
             raise NotImplementedError
 
-        collection = to_bytes(candidate.src)
+        collection = to_bytes(candidate.src, errors='surrogate_or_strict')
         if _is_collection_src_dir(collection):
             return cls.load_buildable(collection)
         return cls.load_data(collection)
@@ -678,18 +678,16 @@ class Artifact:
         with _tempdir() as b_temp_path:
             build_path = os.path.join(b_temp_path, to_bytes(f"{collection_meta['namespace']}{os.path.sep}{collection_meta['name']}"))
             tmp_artifact = _build_collection_dir(src, build_path, collection_manifest, file_manifest)
-            return cls.load_data(tmp_artifact)
+            return cls.load_data(to_bytes(tmp_artifact, errors='surrogate_or_strict'))
 
     @classmethod
     @cache
     def load_data(cls, src):
-        files = {}
-        for root, _, files_list in os.walk(src):
-            for filename in files_list:
-                with open(os.path.join(root, filename), 'rb') as f:
-                    content = f.read()
-                relative_path = os.path.relpath(os.path.join(root, filename), src)
-                files[relative_path] = secure_hash_s(content, hash_func=sha256)
-
-        combined_content = ''.join(files[f] for f in sorted(files))
-        return cls(secure_hash_s(combined_content, hash_func=sha256))
+        # FIXME
+        from ansible.galaxy.collection.concrete_artifact_manager import _get_json_from_installed_dir
+        metadata = _get_json_from_installed_dir(src, _MANIFEST_JSON)
+        try:
+            files_hash = metadata['file_manifest_file']['chksum_sha256']
+        except (KeyError, TypeError):
+            files_hash = secure_hash_s(os.urandom(32), hash_func=sha256)
+        return cls(files_hash)
