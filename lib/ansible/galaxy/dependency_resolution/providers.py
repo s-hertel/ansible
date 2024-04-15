@@ -243,11 +243,12 @@ class CollectionDependencyProviderBase(AbstractProvider):
         # If we're upgrading collections, we can't calculate preinstalled_candidates until the latest matches are found.
         # Otherwise, we can potentially avoid a Galaxy API call by doing this first.
         preinstalled_candidates = set()
-        if not self._upgrade and first_req.type == 'galaxy':
+        if not self._upgrade and not first_req.is_virtual:
             preinstalled_candidates = {
                 candidate for candidate in self._preferred_candidates
-                if candidate.fqcn == fqcn and
-                all(self.is_satisfied_by(requirement, candidate) for requirement in requirements)
+                if candidate.fqcn == fqcn and all(
+                    self.is_satisfied_by(requirement, candidate) and requirement.artifact == candidate.artifact
+                for requirement in requirements)
             }
         try:
             coll_versions = [] if preinstalled_candidates else self._api_proxy.get_collection_versions(first_req)  # type: t.Iterable[t.Tuple[str, GalaxyAPI]]
@@ -286,7 +287,7 @@ class CollectionDependencyProviderBase(AbstractProvider):
                     except ValueError as ex:
                         raise ValueError(version_err) from ex
 
-            return [
+            return list(preinstalled_candidates) + [
                 Candidate(fqcn, version, _none_src_server, first_req.type, None)
                 for version, _none_src_server in coll_versions
             ]

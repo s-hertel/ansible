@@ -691,7 +691,7 @@ def install_collections(
                     keys()
                 )
             )
-            if install_req.is_subdirs else (install_req, )
+            if install_req.is_virtual else (install_req, )
             for install_req in collections
         ),
     )
@@ -703,7 +703,7 @@ def install_collections(
         req
         for req in unsatisfied_requirements
         for exs in existing_collections
-        if req.fqcn == exs.fqcn and meets_requirements(exs.ver, req.ver)
+        if req.fqcn == exs.fqcn and meets_requirements(exs.ver, req.ver) and req.artifact == exs.artifact
     }
 
     if not unsatisfied_requirements and not upgrade:

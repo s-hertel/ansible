@@ -6,12 +6,16 @@
 
 from __future__ import annotations
 
+import io
 import os
 import typing as t
 
 from collections import namedtuple
 from collections.abc import MutableSequence, MutableMapping
+from dataclasses import dataclass, field
+from functools import cache
 from glob import iglob
+from hashlib import sha256
 from urllib.parse import urlparse
 from yaml import safe_load
 
@@ -33,6 +37,7 @@ from ansible.module_utils.common.text.converters import to_bytes, to_native, to_
 from ansible.module_utils.common.arg_spec import ArgumentSpecValidator
 from ansible.utils.collection_loader import AnsibleCollectionRef
 from ansible.utils.display import Display
+from ansible.utils.hashing import secure_hash_s
 
 
 _ALLOW_CONCRETE_POINTER_IN_SOURCE = False  # NOTE: This is a feature flag
@@ -588,6 +593,14 @@ class _ComputedReqKindsMixin:
     def source_info(self):
         return self._source_info
 
+    @property
+    def artifact(self):
+        if not self.is_dir:
+            return None
+        if not hasattr(self, '_artifact'):
+            self._artifact = Artifact.load(self)
+        return self._artifact
+
 
 RequirementNamedTuple = namedtuple('Requirement', ('fqcn', 'ver', 'src', 'type', 'signature_sources'))  # type: ignore[name-match]
 
@@ -631,3 +644,52 @@ class Candidate(
 
         signatures = self.src.get_collection_signatures(self.namespace, self.name, self.ver)
         return self.__class__(self.fqcn, self.ver, self.src, self.type, frozenset([*self.signatures, *signatures]))
+
+
+@dataclass(frozen=True)
+class Artifact:
+    files: str = None
+
+    @classmethod
+    @cache
+    def load(cls, candidate):
+        if not candidate.is_dir:
+            raise NotImplementedError
+
+        collection = to_bytes(candidate.src)
+        if _is_collection_src_dir(collection):
+            return cls.load_buildable(collection)
+        return cls.load_data(collection)
+
+    @classmethod
+    @cache
+    def load_buildable(cls, src):
+        # FIXME circular import
+        from ansible.galaxy.collection import _build_collection_dir, _build_manifest, _build_files_manifest, _tempdir, _get_meta_from_src_dir
+        collection_meta = _get_meta_from_src_dir(src)
+        collection_manifest = _build_manifest(**collection_meta)
+        file_manifest = _build_files_manifest(
+            src,
+            collection_meta['namespace'], collection_meta['name'],
+            collection_meta['build_ignore'],
+            collection_meta['manifest'],
+            collection_meta['license_file'],
+        )
+        with _tempdir() as b_temp_path:
+            build_path = os.path.join(b_temp_path, to_bytes(f"{collection_meta['namespace']}{os.path.sep}{collection_meta['name']}"))
+            tmp_artifact = _build_collection_dir(src, build_path, collection_manifest, file_manifest)
+            return cls.load_data(tmp_artifact)
+
+    @classmethod
+    @cache
+    def load_data(cls, src):
+        files = {}
+        for root, _, files_list in os.walk(src):
+            for filename in files_list:
+                with open(os.path.join(root, filename), 'rb') as f:
+                    content = f.read()
+                relative_path = os.path.relpath(os.path.join(root, filename), src)
+                files[relative_path] = io.BytesIO(content)
+
+        combined_content = b''.join(files[f].getvalue() for f in sorted(files))
+        return cls(secure_hash_s(combined_content, hash_func=sha256))
