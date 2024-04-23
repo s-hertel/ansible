@@ -32,6 +32,9 @@
       that:
         - redirect_failure is failed
         - "'Could not load \"testns.testredirect.dead_end\"' in redirect_failure.msg"
+        # is this the expected behavior for broken plugins|broken redirects|tombstones?
+        - "'testns.testredirect.dead_end' is not test"
+        - "'testns.testredirect.dead_end' is not filter"
   # recursive filter redirect
   - debug: msg="{{ 'data' | testns.testredirect.recursive_redirect }}"
     ignore_errors: yes

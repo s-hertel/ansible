@@ -434,6 +434,14 @@ class JinjaPluginIntercept(MutableMapping):
         # our names take precedence over Jinja's, but let things we've tried to resolve skip the pluginloader
         self._seen_it = set()
 
+    def __contains__(self, key):
+        try:
+            self[key]
+        except Exception:
+            return False
+        else:
+            return True
+
     def __getitem__(self, key):
 
         if not isinstance(key, string_types):
