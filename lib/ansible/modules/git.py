@@ -155,6 +155,14 @@ options:
         default: 'yes'
         version_added: "1.6"
 
+    clone_recurse_submodules:
+        description:
+            - Option to clone with --recurse-submodules. By default submodules are
+              are synced and updated after checking out O(version).
+        type: bool
+        default: 'no'
+        version_added: "2.18"
+
     single_branch:
         description:
             - Clone only the history leading to the tip of the specified revision.
@@ -584,7 +592,7 @@ def clone(git_path, module, repo, dest, remote, depth, version, bare,
     else:
         cmd.extend(['--origin', remote])
 
-        if module.params['recursive']:
+        if module.params['clone_recurse_submodules']:
             cmd.append('--recurse-submodules')
 
     is_branch_or_tag = is_remote_branch(git_path, module, dest, repo, version) or is_remote_tag(git_path, module, dest, repo, version)
@@ -1012,7 +1020,7 @@ def submodule_update(git_path, module, dest, track_submodules, force=False):
                         "As a result, any new submodules containing relative URLs will be relative to the CWD. "
                         "If there are URLs that are supposed to be relative to the remote, version must be a symbolic reference "
                         "with the remote configured, or 'origin' must be configured as the default upstream. "
-                        "This can also be resolved by cloning the repo again."
+                        "This can also be resolved by cloning the repo again with --recurse-submodules."
                     )
         module.fail_json(msg="Failed to init/update submodules: %s" % out + err)
     return (rc, out, err)
@@ -1218,6 +1226,7 @@ def main():
             executable=dict(default=None, type='path'),
             bare=dict(default='no', type='bool'),
             recursive=dict(default='yes', type='bool'),
+            clone_recurse_submodules=dict(default='no', type='bool'),
             single_branch=dict(default=False, type='bool'),
             track_submodules=dict(default='no', type='bool'),
             umask=dict(default=None, type='raw'),
