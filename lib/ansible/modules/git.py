@@ -584,6 +584,9 @@ def clone(git_path, module, repo, dest, remote, depth, version, bare,
     else:
         cmd.extend(['--origin', remote])
 
+        if module.params['recursive']:
+            cmd.append('--recurse-submodules')
+
     is_branch_or_tag = is_remote_branch(git_path, module, dest, repo, version) or is_remote_tag(git_path, module, dest, repo, version)
     if depth:
         if version == 'HEAD' or refspec:
@@ -999,6 +1002,18 @@ def submodule_update(git_path, module, dest, track_submodules, force=False):
         cmd.append('--force')
     (rc, out, err) = module.run_command(cmd, cwd=dest)
     if rc != 0:
+        if module.params['remote'] != 'origin':
+            _rc, _out, _err = module.run_command([git_path, 'symbolic-ref', module.params['version']], cwd=dest)
+            if _rc != 0:
+                _rc, _out, _err = module.run_command([git_path, 'remote', 'origin'], cwd=dest)
+                if _rc != 0:
+                    module.warn(
+                        f"There is no remote 'origin', and the version '{module.params['version']}' is not a symbolic reference. "
+                        "As a result, any new submodules containing relative URLs will be relative to the CWD. "
+                        "If there are URLs that are supposed to be relative to the remote, version must be a symbolic reference "
+                        "with the remote configured, or 'origin' must be configured as the default upstream. "
+                        "This can also be resolved by cloning the repo again."
+                    )
         module.fail_json(msg="Failed to init/update submodules: %s" % out + err)
     return (rc, out, err)
 
