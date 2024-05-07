@@ -567,15 +567,25 @@ def get_submodule_versions(git_path, module, dest, version='HEAD'):
     return submodules
 
 
-def get_submodule_config(git_path, module, dest, submodule_name, config_name):
+def get_submodule_config(git_path, module, dest, submodule_name, config_name, config_file='.gitmodules'):
     config_path = 'submodule.' + submodule_name + '.' + config_name
-    cmd = [git_path, 'config', '-f', '.gitmodules', '--get', config_path]
+    if config_file:
+        cmd = [git_path, 'config', '-f', '.gitmodules', '--get', config_path]
+    else:
+        cmd = [git_path, 'config', '--get', config_path]
     (rc, out, err) = module.run_command(cmd, cwd=dest)
 
     out = out.rstrip('\n')
-    # if we can't resolve the actual branch, assume its master.
-    if not out:
+    if not out and config_name == 'branch':
+        # TODO: if this is configurable the default can be deprecated and replaced with 'main'
         out = "master"
+    elif not out and config_name == 'path':
+        # is this right?
+        out = submodule_name
+    elif not out and config_name == 'url':
+        # no default?
+        pass
+
     return out
 
 
@@ -583,15 +593,10 @@ def get_submodule_versions_from_remote(git_path, module, dest, submodule_revisio
     submodule_revisions_remote = {}
     for submodule_name in submodule_revisions:
         submodule_path = get_submodule_config(git_path, module, dest, submodule_name, 'path')
-        if not submodule_path:
-            module.fail_json(msg='Unable to detect path of submodule: %s' % submodule_name)
-
         submodule_branch = get_submodule_config(git_path, module, dest, submodule_name, 'branch')
-        if not submodule_branch:
-            module.fail_json(msg='Unable to detect branch of submodule: %s' % submodule_name)
 
         submodule_path = os.path.join(dest, submodule_path)
-        revision = get_version(module, git_path, submodule_path, '%s/%s' % ('origin', submodule_branch))
+        revision = get_version(module, git_path, submodule_path, '%s/%s' % (module.params['remote'], submodule_branch))
         submodule_revisions_remote[submodule_name] = revision
 
     return submodule_revisions_remote
@@ -963,7 +968,7 @@ def fetch(git_path, module, repo, dest, version, remote, depth, bare, refspec, g
             module.fail_json(msg="Failed to %s: %s %s" % (label, out, err), cmd=command)
 
 
-def submodules_fetch(git_path, module, track_submodules, dest):
+def submodules_fetch(git_path, module, remote, track_submodules, dest):
     changed = False
 
     if not os.path.exists(os.path.join(dest, '.gitmodules')):
@@ -1006,17 +1011,39 @@ def submodules_fetch(git_path, module, track_submodules, dest):
     return changed
 
 
-def submodule_update(git_path, module, dest, track_submodules, force=False):
-    ''' init and update any submodules '''
+def resolve_relative_url(remote_url, url):
+    remoteurl = remote_url.rstrip('/')
 
+    while url:
+        if url.startswith('../'):
+            remoteurl = chop_last_dir(remoteurl)
+            url = url[3:]
+        elif url.startswith('./'):
+            url = url[2:]
+        else:
+            break
+    result = f"{remoteurl}/{url.rstrip('/')}"
+    return result
+
+
+def chop_last_dir(remoteurl):
+    components = remoteurl.split('/')
+    if len(components) > 1:
+        remoteurl = '/'.join(components[:-1])
+    return remoteurl
+
+
+def submodule_update(git_path, module, dest, track_submodules, force=False, sync=True):
+    ''' init and update any submodules '''
     # get the valid submodule params
     params = get_submodule_update_params(module, git_path, dest)
 
     # skip submodule commands if .gitmodules is not present
     if not os.path.exists(os.path.join(dest, '.gitmodules')):
         return (0, '', '')
-    cmd = [git_path, 'submodule', 'sync']
-    (rc, out, err) = module.run_command(cmd, check_rc=True, cwd=dest)
+    if sync:
+        cmd = [git_path, 'submodule', 'sync']
+        (rc, out, err) = module.run_command(cmd, check_rc=True, cwd=dest)
     if 'remote' in params and track_submodules:
         cmd = [git_path, 'submodule', 'update', '--init', '--recursive', '--remote']
     else:
@@ -1024,9 +1051,61 @@ def submodule_update(git_path, module, dest, track_submodules, force=False):
     if force:
         cmd.append('--force')
     (rc, out, err) = module.run_command(cmd, cwd=dest)
-    if rc != 0:
+
+    if rc == 0:
+        return (rc, out, err)
+
+    if not sync:
+        # guard against infinite recursion
         module.fail_json(msg="Failed to init/update submodules: %s" % out + err)
-    return (rc, out, err)
+
+    # if there is a non-default remote, submodule urls could be relative it
+
+    # check for a non-default remote
+    remote_url = None
+    if module.params['remote'] != 'origin':
+        _rc, _out, _err = module.run_command([git_path, 'remote', 'get-url', module.params['remote']], cwd=dest)
+        if _rc == 0:
+            remote_url = _out.rstrip('\n')
+
+    # check for any relative submodule urls and if they were resolved relative to the CWD and don't exist
+    retry = False
+    if remote_url is not None:
+        _rc, _out, _err = module.run_command([git_path, 'submodule', 'status', '--recursive'], use_unsafe_shell=True, cwd=dest)
+        if _rc == 0:
+            for line in _out.splitlines():
+                submodule_name = line.split(' ')[-1]
+                src_url = get_submodule_config(git_path, module, dest, submodule_name, 'url')
+                if not src_url.startswith(('.', '..')):
+                    continue
+                absolute_url = resolve_relative_url(remote_url, src_url)
+                previously_attempted = get_submodule_config(git_path, module, dest, submodule_name, 'url', config_file=None)
+                if previously_attempted == absolute_url:
+                    continue
+                if previously_attempted.startswith(os.path.sep) and os.path.exists(previously_attempted):
+                    # not the problem
+                    continue
+                if not previously_attempted.startswith(os.path.sep):
+                    # not the problem?
+                    continue
+                # maybe the problem
+                _rc, _out, _err = module.run_command([git_path, 'config', f'submodule.{submodule_name}.url', absolute_url], check_rc=True, cwd=dest)
+                retry |= _rc == 0
+
+    if retry:
+        # try again with the newly configured value(s)
+        _rc, _out, _err = submodule_update(git_path, module, dest, track_submodules, force=force, sync=False)
+        if _rc == 0:
+            return _rc, _out, _err
+        else:
+            # leave it the way it was found?
+            # cmd = [git_path, 'submodule', 'sync']
+            # (rc, out, err) = module.run_command(cmd, check_rc=True, cwd=dest)
+            module.warn(
+                "Failed to resolve urls relative to the remote, leaving behind edited .git/config for forensics. "
+                f"Regenerate it by running '{git_path} submodule sync' in {dest} directory."
+            )
+    module.fail_json(msg="Failed to init/update submodules: %s" % out + err)
 
 
 def set_remote_branch(git_path, module, dest, remote, version, depth):
@@ -1410,7 +1489,7 @@ def main():
     # Deal with submodules
     submodules_updated = False
     if recursive and not bare:
-        submodules_updated = submodules_fetch(git_path, module, track_submodules, dest)
+        submodules_updated = submodules_fetch(git_path, module, remote, track_submodules, dest)
         if submodules_updated:
             result.update(submodules_changed=submodules_updated)
 
