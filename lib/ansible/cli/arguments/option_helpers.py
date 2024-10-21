@@ -289,12 +289,16 @@ def add_fork_options(parser):
                         help="specify number of parallel processes to use (default=%s)" % C.DEFAULT_FORKS)
 
 
+def add_inventory_list_hosts_options(parser):
+    """Add options for commands that output a list of matching hosts."""
+    parser.add_argument('--list-hosts', dest='listhosts', action='store_true',
+                        help='outputs a list of matching hosts; does not execute anything else')
+
+
 def add_inventory_options(parser):
     """Add options for commands that utilize inventory"""
     parser.add_argument('-i', '--inventory', '--inventory-file', dest='inventory', action="append",
                         help="specify inventory host path or comma separated host list. --inventory-file is deprecated")
-    parser.add_argument('--list-hosts', dest='listhosts', action='store_true',
-                        help='outputs a list of matching hosts; does not execute anything else')
     parser.add_argument('-l', '--limit', default=C.DEFAULT_SUBSET, dest='subset',
                         help='further limit selected hosts to an additional pattern')
 

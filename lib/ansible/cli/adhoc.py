@@ -38,6 +38,7 @@ class AdHocCLI(CLI):
 
         opt_help.add_runas_options(self.parser)
         opt_help.add_inventory_options(self.parser)
+        opt_help.add_inventory_list_hosts_options(self.parser)
         opt_help.add_async_options(self.parser)
         opt_help.add_output_options(self.parser)
         opt_help.add_connect_options(self.parser)

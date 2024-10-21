@@ -49,9 +49,6 @@ class InventoryCLI(CLI):
         opt_help.add_basedir_options(self.parser)
         opt_help.add_runtask_options(self.parser)
 
-        # remove unused default options
-        self.parser.add_argument('--list-hosts', help=argparse.SUPPRESS, action=opt_help.UnrecognizedArgument)
-
         self.parser.add_argument('args', metavar='group', nargs='?', help='The name of a group in the inventory, relevant when using --graph')
 
         # Actions

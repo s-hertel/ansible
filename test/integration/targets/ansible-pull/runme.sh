@@ -91,3 +91,11 @@ ANSIBLE_CONFIG='' ansible-pull -d "${pull_dir}" -U "${repo_dir}" conn_secret.yml
 
 # fail if we try do delete /var/tmp
 ANSIBLE_CONFIG='' ansible-pull -d var/tmp -U "${repo_dir}" --purge "$@"
+
+# fail for unsupported inventory-related option
+expected="ansible-pull: error: unrecognized arguments: --list-hosts"
+output=$(ansible-pull -d "${pull_dir}" -U "${repo_dir}" --list-hosts "$@" multi_play_1.yml 2>&1) || true
+if ! echo "$output" | grep -q "${expected}"; then
+    echo "Expected ${expected}"
+    exit 1
+fi

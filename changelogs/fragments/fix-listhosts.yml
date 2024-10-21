@@ -1,0 +1,3 @@
+bugfixes:
+- >
+  ansible-pull, ansible-console - remove ignored --list-hosts option, consolidate with ansible-inventory.

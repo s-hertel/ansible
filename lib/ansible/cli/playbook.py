@@ -47,6 +47,7 @@ class PlaybookCLI(CLI):
         opt_help.add_subset_options(self.parser)
         opt_help.add_check_options(self.parser)
         opt_help.add_inventory_options(self.parser)
+        opt_help.add_inventory_list_hosts_options(self.parser)
         opt_help.add_runtask_options(self.parser)
         opt_help.add_vault_options(self.parser)
         opt_help.add_fork_options(self.parser)
