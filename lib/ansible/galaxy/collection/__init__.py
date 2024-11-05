@@ -792,6 +792,107 @@ def install_collections(
                     raise
 
 
+def _get_installed_dependencies(collection: Requirement, installed_collections: t.Iterable[Requirement], artifacts_manager: ConcreteArtifactsManager):
+    dependencies = []
+    for fqcn, version in artifacts_manager.get_direct_collection_meta(collection)["dependencies"].items():
+        dependencies.extend(_get_installed_collections(fqcn, version, installed_collections))
+    return dependencies
+
+
+def _get_installed_collections(fqcn: str, version: str, installed_collections: t.Iterable[Requirement]):
+    collections = []
+    for collection in installed_collections:
+        if fqcn != collection.fqcn or not meets_requirements(version=collection.ver, requirements=version):
+            continue
+        collections.append(collection)
+    return collections
+
+
+def _prompt_uninstall(requirements, remove, keep, dependencies, dependencies_of, direct, no_prompt=False):
+    """Process installed requirements by path, and call the method recursively for unused dependencies."""
+    _next_requirements = []
+    _ask_again_later = []
+
+    for collection in requirements:
+        request_type = "collection" if collection.src in direct else "unused dependency"
+        prompt = f"Uninstalling {request_type} {collection.fqcn}:{collection.ver}:\n  Would remove:\n    {to_text(collection.src)}\n"
+        prompt += "Proceed (Y/n)? "
+
+        if not collection.src in direct:
+            if keep.intersection(dependencies_of[collection.src]):
+                # definitely still need this dependency, prune here
+                continue
+            elif dependencies_of[collection.src] and not set(dependencies_of[collection.src]) in remove:
+                # needed by something else, but perhaps it's also ready to prune, postpone prompting or pruning
+                _ask_again_later.append(collection)
+                continue
+            # needed by nothing, or nothing that isn't also being removed, proceed to remove
+
+        if collection.src in remove or collection.src in keep:
+            # ask only once
+            continue
+        elif not no_prompt and not _confirm_removal(f"{prompt}"):
+            keep.add(collection.src)
+            continue
+
+        remove.add(collection.src)
+        # prompting depth first, i.e. community.aws -> amazon.aws -> ansible.netcommon -> ansible.utils
+        # vs breadth first, i.e. community.aws -> some.unrelated -> ... -> amazon.aws -> ...
+        _next_requirements.extend(dependencies[collection.src])
+
+    if _next_requirements:
+        _prompt_uninstall(_next_requirements + _ask_again_later, remove, keep, dependencies, dependencies_of, direct, no_prompt=no_prompt)
+
+
+def _confirm_removal(prompt: str) -> bool:
+    """Prompt the user to confirm collection removal."""
+    while (response := input(prompt)).lower() not in ("y", "n"):
+        display.display(f"Your response ('{response}') was not one of the expected responses: y, n")
+    return response == "y"
+
+
+def uninstall_collections(
+    collections: t.Iterable[Requirement],
+    collections_path: list[str],
+    no_deps: bool,
+    no_prompt: bool,
+    artifacts_manager: ConcreteArtifactsManager
+) -> int:
+    """Uninstall collections that match the provided requirements."""
+    installed_collections = list(find_existing_collections(collections_path, artifacts_manager, dedupe=False))
+
+    dependencies = {}  # parent.src: [child.src], child.src: []
+    dependencies_of = {}  # child.src: [parent.src], parent.src: []
+    for collection in installed_collections:
+        dependencies.setdefault(collection.src, []).extend(_get_installed_dependencies(collection, installed_collections, artifacts_manager))
+        dependencies_of.setdefault(collection.src, [])
+
+    requirements = []
+    for collection in collections:
+        requirements.extend(_get_installed_collections(collection.fqcn, collection.ver, installed_collections))
+
+    # get collections to remove
+    remove, keep = set(), set()
+    direct = set([req.src for req in requirements])
+    _prompt_uninstall(requirements, remove, keep, dependencies, dependencies_of, direct, no_prompt)
+
+    # Perform uninstallation
+    rc = 0
+    for collection in remove:
+        try:
+            if os.path.islink(collection):
+                os.unlink(collection)
+            else:
+                shutil.rmtree(collection)
+        except OSError as e:
+            display.error(f"Unable to remove {collection}: {e}")
+            rc = 1
+        else:
+            display.debug(f"Successfully uninstalled {collection}")
+
+    return rc
+
+
 # NOTE: imported in ansible.cli.galaxy
 def validate_collection_name(name):  # type: (str) -> str
     """Validates the collection name as an input from the user or a requirements file fit the requirements.

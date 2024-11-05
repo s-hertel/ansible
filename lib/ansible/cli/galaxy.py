@@ -36,6 +36,7 @@ from ansible.galaxy.collection import (
     find_existing_collections,
     install_collections,
     publish_collection,
+    uninstall_collections,
     validate_collection_name,
     validate_collection_path,
     verify_collections,
@@ -281,6 +282,7 @@ class GalaxyCLI(CLI):
         self.add_build_options(collection_parser, parents=[common, force])
         self.add_publish_options(collection_parser, parents=[common])
         self.add_install_options(collection_parser, parents=[common, force, cache_options])
+        self.add_uninstall_options(collection_parser, parents=[common])  # FIXME: only verbosity in common applies
         self.add_list_options(collection_parser, parents=[common, collections_path])
         self.add_verify_options(collection_parser, parents=[common, collections_path])
 
@@ -291,6 +293,8 @@ class GalaxyCLI(CLI):
         role_parser.required = True
         self.add_init_options(role_parser, parents=[common, force, offline])
         self.add_remove_options(role_parser, parents=[common, roles_path])
+        # TODO: allow uninstalling roles at the same time as collections.
+        # I don't think we should simply use the existing role removal for the common action, because it doesn't prompt or remove dangling dependencies.
         self.add_delete_options(role_parser, parents=[common, github])
         self.add_list_options(role_parser, parents=[common, roles_path])
         self.add_search_options(role_parser, parents=[common])
@@ -575,6 +579,35 @@ class GalaxyCLI(CLI):
             install_parser.add_argument('-g', '--keep-scm-meta', dest='keep_scm_meta', action='store_true',
                                         default=False,
                                         help='Use tar instead of the scm archive option when packaging the role.')
+
+
+    def add_uninstall_options(self, parser, parents=None):
+        galaxy_type = 'role' if parser.metavar == 'ROLE_ACTION' else 'collection'
+
+        uninstall_parser = parser.add_parser('uninstall', parents=parents or [], help=f'Uninstall collections and roles')  # {install_paths}')
+
+        # TODO
+        # uninstall_parser.add_argument('--roles-path', dest='roles_path', default=C.DEFAULT_ROLES_PATH,
+        #                               type=opt_help.unfrack_path(pathsep=True), action=opt_help.PrependListAction,
+        #                               help='Remove roles from the specified paths')
+        uninstall_parser.add_argument('--collections-path', dest='collections_path', default=C.COLLECTIONS_PATHS,
+                                      type=opt_help.unfrack_path(pathsep=True), action=opt_help.PrependListAction,
+                                      help='Remove collections from the specified paths')
+        uninstall_parser.add_argument('--no-deps', dest='no_deps', default=False, help="Don't remove dangling dependencies")
+
+        # one required, mutually exclusive
+        uninstall_parser.add_argument('args', metavar='{0}_name'.format(galaxy_type), nargs='*', help=f"{galaxy_type.upper()} to uninstall")
+        uninstall_parser.add_argument('-r', '--requirements-file', dest='requirements',
+                                      help='A file containing a list of collections to be installed.'
+                                     )
+
+        # bypass prompting
+        uninstall_parser.add_argument('-y', '--yes', dest='yes', action='store_true', default=False,
+                                      help=f'Remove all {galaxy_type}s matching the requirements without prompting'
+                                     )
+
+        uninstall_parser.set_defaults(func=self.execute_uninstall)
+
 
     def add_build_options(self, parser, parents=None):
         build_parser = parser.add_parser('build', parents=parents,
@@ -1531,6 +1564,41 @@ class GalaxyCLI(CLI):
                 self.exit_without_ignore()
 
         return 0
+
+    @with_collection_artifacts_manager
+    def execute_uninstall(self, artifacts_manager=None):
+        uninstall_items = context.CLIARGS['args']
+        requirements_file = context.CLIARGS['requirements']
+
+        if self._implicit_role or context.CLIARGS['type'] == 'collection':
+            requirements = self._require_one_of_collections_requirements(uninstall_items, requirements_file, artifacts_manager=artifacts_manager)
+
+        rc = 0
+        # TODO: needs to prompt for dependencies that aren't used by anything else
+        # if self._implicit_role or context.CLIARGS['type'] == 'role':
+        #     for role_name in requirements["roles"]:
+        #         role = GalaxyRole(self.galaxy, self.api, role_name)
+        #         if not role.metadata:
+        #             continue
+        #         if not context.CLIARGS["yes"]:
+        #             prompt = f"Remove {role_name} from  {role.path} (y/n): "
+        #             if not input(prompt).lower() == "y":
+        #                 continue
+        #         if not role.remove():
+        #             display.error(f"Failed to remove role {role_name}")
+        #             rc = 1
+
+        if self._implicit_role or context.CLIARGS['type'] == 'collection':
+            rc = uninstall_collections(
+                requirements["collections"],
+                context.CLIARGS['collections_path'],
+                context.CLIARGS["no_deps"],
+                context.CLIARGS["yes"],
+                artifacts_manager,
+            ) or rc
+
+        if rc != 0:
+            raise AnsibleError("Failed to remove all requirements")
 
     def execute_remove(self):
         """
