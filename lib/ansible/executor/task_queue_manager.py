@@ -73,6 +73,7 @@ class PromptSend:
     seconds: int = None
     interrupt_input: t.Iterable[bytes] = None
     complete_input: t.Iterable[bytes] = None
+    newline: bool = True
 
 
 class FinalQueue(multiprocessing.queues.SimpleQueue):

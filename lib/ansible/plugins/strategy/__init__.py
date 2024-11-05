@@ -135,6 +135,7 @@ def results_thread_main(strategy):
                         seconds=result.seconds,
                         complete_input=result.complete_input,
                         interrupt_input=result.interrupt_input,
+                        newline=result.newline,
                     )
                 except AnsibleError as e:
                     value = e

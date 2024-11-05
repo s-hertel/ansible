@@ -72,6 +72,8 @@ _MAX_INT = 2 ** (ctypes.sizeof(ctypes.c_int) * 8 - 1) - 1
 
 MOVE_TO_BOL = b'\r'
 CLEAR_TO_EOL = b'\x1b[K'
+SAVE_CURSOR = b'\x1b[s'
+RESTORE_CURSOR = b'\x1b[u'
 
 
 def get_text_width(text: str) -> int:
@@ -232,6 +234,7 @@ def setraw(fd: int, when: int = termios.TCSAFLUSH) -> None:
 def clear_line(stdout: t.BinaryIO) -> None:
     stdout.write(b'\x1b[%s' % MOVE_TO_BOL)
     stdout.write(b'\x1b[%s' % CLEAR_TO_EOL)
+    stdout.flush()
 
 
 def setup_prompt(stdin_fd: int, stdout_fd: int, seconds: int, echo: bool) -> None:
@@ -741,12 +744,14 @@ class Display(metaclass=Singleton):
         seconds: int | None = None,
         interrupt_input: c.Container[bytes] | None = None,
         complete_input: c.Container[bytes] | None = None,
+        newline: bool = True,
     ) -> bytes:
+        """Prompt user for input until criteria for stopping (CTRL+C or Enter by default) is met."""
         if self._final_q:
             from ansible.executor.process.worker import current_worker
             self._final_q.send_prompt(
                 worker_id=current_worker.worker_id, prompt=msg, private=private, seconds=seconds,
-                interrupt_input=interrupt_input, complete_input=complete_input
+                interrupt_input=interrupt_input, complete_input=complete_input, newline=newline,
             )
             return current_worker.worker_queue.get()
 
@@ -774,8 +779,9 @@ class Display(metaclass=Singleton):
         #         # can't catch in the results_thread_main daemon thread
         #         raise AnsiblePromptInterrupt('user interrupt')
 
-        self.display(msg, flush=True)
-        result = b''
+        self.display(msg, newline=newline, flush=True)
+
+        result = None
         with self._lock:
             original_stdin_settings = termios.tcgetattr(self._stdin_fd)
             try:
@@ -786,10 +792,15 @@ class Display(metaclass=Singleton):
                 termios.tcflush(self._stdin, termios.TCIFLUSH)
 
                 # read input 1 char at a time until the optional timeout or complete/interrupt condition is met
-                return self._read_non_blocking_stdin(echo=not private, seconds=seconds, interrupt_input=interrupt_input, complete_input=complete_input)
+                result = self._read_non_blocking_stdin(echo=not private, seconds=seconds, interrupt_input=interrupt_input, complete_input=complete_input)
             finally:
                 # restore the old settings for the duped stdin stdin_fd
                 termios.tcsetattr(self._stdin_fd, termios.TCSADRAIN, original_stdin_settings)
+
+            self._stdout.write(b'\n')
+            self._stdout.flush()
+
+        return result
 
     def _read_non_blocking_stdin(
         self,
@@ -815,6 +826,7 @@ class Display(metaclass=Singleton):
             # unsupported/not present, use default
             backspace_sequences = [b'\x7f', b'\x08']
 
+        control_seq = b''
         result_string = b''
         while seconds is None or (time.time() - start < seconds):
             key_pressed = None
@@ -829,18 +841,38 @@ class Display(metaclass=Singleton):
                 if key_pressed is None:
                     key_pressed = b''
 
+            if key_pressed == b'\x1b':  # ESC, start of control seq
+                self._stdout.write(SAVE_CURSOR)
+                control_seq = key_pressed
+            elif control_seq == b'\x1b':
+                control_seq += key_pressed
+            else:
+                # prevent arrow keys from escaping the prompt
+                if control_seq == b'\x1b[' and key_pressed in (b'A', b'B', b'C', b'D'):
+                    self._stdout.write(RESTORE_CURSOR)
+                    self._stdout.flush()
+                control_seq = b''
+
             if (interrupt_input is None and key_pressed == interrupt) or (interrupt_input is not None and key_pressed.lower() in interrupt_input):
                 clear_line(self._stdout)
                 raise AnsiblePromptInterrupt('user interrupt')
             if (complete_input is None and key_pressed in (b'\r', b'\n')) or (complete_input is not None and key_pressed.lower() in complete_input):
+                if key_pressed not in (b'\r', b'\n'):
+                    result_string += key_pressed
                 clear_line(self._stdout)
                 break
             elif key_pressed in backspace_sequences:
-                clear_line(self._stdout)
-                result_string = result_string[:-1]
                 if echo:
-                    self._stdout.write(result_string)
-                self._stdout.flush()
+                    # remove control seq
+                    self._stdout.write(b"\b\b%s" % CLEAR_TO_EOL)
+                    self._stdout.flush()
+
+                if result_string:
+                    result_string = result_string[:-1]
+                    if echo:
+                        # remove character
+                        self._stdout.write(b"\b%s" % CLEAR_TO_EOL)
+                        self._stdout.flush()
             else:
                 result_string += key_pressed
         return result_string
