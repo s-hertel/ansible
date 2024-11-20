@@ -339,30 +339,13 @@ def chown_path(module, path, owner, group):
     return module.set_group_if_different(path, group, changed)
 
 
-def chown_recursive(path, module):
-    changed = False
-    owner = module.params['owner']
-    group = module.params['group']
-
-    # TODO: Consolidate with the other methods calling set_*_if_different method, this is inefficient.
-    for dirpath, dirnames, filenames in os.walk(path):
-        changed |= chown_path(module, dirpath, owner, group)
-        for subdir in [os.path.join(dirpath, d) for d in dirnames]:
-            changed |= chown_path(module, subdir, owner, group)
-        for filepath in [os.path.join(dirpath, f) for f in filenames]:
-            changed |= chown_path(module, filepath, owner, group)
-
-    return changed
-
-
-def copy_diff_files(src, dest, module):
+def copy_diff_files(src, dest, module, diff_files):
     """Copy files that are different between `src` directory and `dest` directory."""
 
     changed = False
     owner = module.params['owner']
     group = module.params['group']
     local_follow = module.params['local_follow']
-    diff_files = filecmp.dircmp(src, dest).diff_files
     if len(diff_files):
         changed = True
     if not module.check_mode:
@@ -377,20 +360,18 @@ def copy_diff_files(src, dest, module):
             else:
                 shutil.copyfile(b_src_item_path, b_dest_item_path)
                 shutil.copymode(b_src_item_path, b_dest_item_path)
-
-            chown_path(module, b_dest_item_path, owner, group)
+                chown_path(module, b_dest_item_path, owner, group)
             changed = True
     return changed
 
 
-def copy_left_only(src, dest, module):
+def copy_left_only(src, dest, module, left_only):
     """Copy files that exist in `src` directory only to the `dest` directory."""
 
     changed = False
     owner = module.params['owner']
     group = module.params['group']
     local_follow = module.params['local_follow']
-    left_only = filecmp.dircmp(src, dest).left_only
     if len(left_only):
         changed = True
     if not module.check_mode:
@@ -400,65 +381,65 @@ def copy_left_only(src, dest, module):
             b_src_item_path = to_bytes(src_item_path, errors='surrogate_or_strict')
             b_dest_item_path = to_bytes(dest_item_path, errors='surrogate_or_strict')
 
-            if os.path.islink(b_src_item_path) and os.path.isdir(b_src_item_path) and local_follow is True:
-                shutil.copytree(b_src_item_path, b_dest_item_path, symlinks=not local_follow)
-                chown_recursive(b_dest_item_path, module)
+            symlink_to_dir = os.path.islink(b_src_item_path) and os.path.isdir(b_src_item_path)
+            symlink_to_file = os.path.islink(b_src_item_path) and os.path.isfile(b_src_item_path)
 
-            if os.path.islink(b_src_item_path) and os.path.isdir(b_src_item_path) and local_follow is False:
-                linkto = os.readlink(b_src_item_path)
-                os.symlink(linkto, b_dest_item_path)
-
-            if os.path.islink(b_src_item_path) and os.path.isfile(b_src_item_path) and local_follow is True:
-                shutil.copyfile(b_src_item_path, b_dest_item_path)
-                chown_path(module, b_dest_item_path, owner, group)
-
-            if os.path.islink(b_src_item_path) and os.path.isfile(b_src_item_path) and local_follow is False:
-                linkto = os.readlink(b_src_item_path)
-                os.symlink(linkto, b_dest_item_path)
-
-            if not os.path.islink(b_src_item_path) and os.path.isfile(b_src_item_path):
+            if (symlink_to_dir and local_follow) or (not symlink_to_dir and os.path.isdir(b_src_item_path)):
+                copytree(module, b_src_item_path, b_dest_item_path)
+            elif (symlink_to_file and local_follow) or (not symlink_to_file and os.path.isfile(b_src_item_path)):
                 shutil.copyfile(b_src_item_path, b_dest_item_path)
                 shutil.copymode(b_src_item_path, b_dest_item_path)
                 chown_path(module, b_dest_item_path, owner, group)
-
-            if not os.path.islink(b_src_item_path) and os.path.isdir(b_src_item_path):
-                shutil.copytree(b_src_item_path, b_dest_item_path, symlinks=not local_follow)
-                chown_recursive(b_dest_item_path, module)
+            elif symlink_to_dir or symlink_to_file:
+                linkto = os.readlink(b_src_item_path)
+                os.symlink(linkto, b_dest_item_path)
 
             changed = True
     return changed
 
 
 def copy_common_dirs(src, dest, module):
-    changed = False
-    common_dirs = filecmp.dircmp(src, dest).common_dirs
-    for item in common_dirs:
-        src_item_path = os.path.join(src, item)
-        dest_item_path = os.path.join(dest, item)
-        b_src_item_path = to_bytes(src_item_path, errors='surrogate_or_strict')
-        b_dest_item_path = to_bytes(dest_item_path, errors='surrogate_or_strict')
-        diff_files_changed = copy_diff_files(b_src_item_path, b_dest_item_path, module)
-        left_only_changed = copy_left_only(b_src_item_path, b_dest_item_path, module)
-        if diff_files_changed or left_only_changed:
-            changed = True
+    owner = module.params['owner']
+    group = module.params['group']
 
+    dir_cmp = filecmp.dircmp(src, dest)
+    diff_files_changed = copy_diff_files(src, dest, module, dir_cmp.diff_files)
+    left_only_changed = copy_left_only(src, dest, module, dir_cmp.left_only)
+    changed = diff_files_changed or left_only_changed
+
+    for item in dir_cmp.common_dirs:
         # recurse into subdirectory
         changed = copy_common_dirs(os.path.join(src, item), os.path.join(dest, item), module) or changed
+
+    for item in dir_cmp.same_files:
+        changed = chown_path(module, os.path.join(dest, item), owner, group) or changed
+
     return changed
+
+
+def copytree(module, src, dst):
+    copied_paths = [dst]
+    symlinks = not module.params['local_follow']
+
+    def record_walk(directory, content):
+        dest_directory = directory.replace(os.path.dirname(src), dst, 1)
+        copied_paths.extend([os.path.join(dest_directory, path) for path in content])
+        return []
+
+    shutil.copytree(src, dst, symlinks=symlinks, ignore=record_walk)
+
+    for path in copied_paths:
+       if os.path.isfile(path) or os.path.isdir(path):
+           chown_path(module, path, module.params['owner'], module.params['group'])
 
 
 def copy_directory(src, dest, module):
     if not os.path.exists(dest):
         if not module.check_mode:
-            shutil.copytree(src, dest, symlinks=not module.params['local_follow'])
-            chown_recursive(dest, module)
+            copytree(module, src, dest)
         changed = True
     else:
-        diff_files_changed = copy_diff_files(src, dest, module)
-        left_only_changed = copy_left_only(src, dest, module)
-        common_dirs_changed = copy_common_dirs(src, dest, module)
-        owner_group_changed = chown_recursive(dest, module)
-        changed = any([diff_files_changed, left_only_changed, common_dirs_changed, owner_group_changed])
+        changed = copy_common_dirs(src, dest, module)
     return changed
 
 
