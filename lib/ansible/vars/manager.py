@@ -512,12 +512,9 @@ class VariableManager:
         if task.delegate_to:
             delegated_host_name = templar.template(task.delegate_to, fail_on_undefined=False)
 
+            # "" handled by the caller
             # no need to do work if omitted
-            if delegated_host_name != self._omit_token:
-
-                if not delegated_host_name:
-                    raise AnsibleError('Empty hostname produced from delegate_to: "%s"' % task.delegate_to)
-
+            if delegated_host_name and delegated_host_name != self._omit_token:
                 delegated_host = self._inventory.get_host(delegated_host_name)
                 if delegated_host is None:
                     for h in self._inventory.get_hosts(ignore_limits=True, ignore_restrictions=True):

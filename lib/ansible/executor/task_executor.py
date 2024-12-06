@@ -451,6 +451,8 @@ class TaskExecutor:
         if delegated_host_name:
             self._task.delegate_to = delegated_host_name
             variables.update(delegated_vars)
+        else:
+            return 'Empty hostname produced from delegate_to: "%s"' % self._task.delegate_to
 
     def _execute(self, variables=None):
         """
@@ -464,7 +466,7 @@ class TaskExecutor:
 
         templar = Templar(loader=self._loader, variables=variables)
 
-        self._calculate_delegate_to(templar, variables)
+        delegate_to_error = self._calculate_delegate_to(templar, variables)
 
         context_validation_error = None
 
@@ -522,6 +524,9 @@ class TaskExecutor:
         # Not skipping, if we had loop error raised earlier we need to raise it now to halt the execution of this task
         if self._loop_eval_error is not None:
             raise self._loop_eval_error  # pylint: disable=raising-bad-type
+
+        if delegate_to_error is not None:
+            raise AnsibleError(delegate_to_error)
 
         # if we ran into an error while setting up the PlayContext, raise it now, unless is known issue with delegation
         # and undefined vars (correct values are in cvars later on and connection plugins, if still error, blows up there)
