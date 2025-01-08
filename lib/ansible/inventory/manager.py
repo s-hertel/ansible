@@ -238,9 +238,9 @@ class InventoryManager(object):
                 display.warning("No inventory was parsed, only implicit localhost is available")
 
         for group in self.groups.values():
-            group.vars = combine_vars(group.vars, get_vars_from_inventory_sources(self._loader, self._sources, [group], 'inventory'))
+            group.vars = combine_vars(group.vars, get_vars_from_inventory_sources(self._loader, self._sources, [group], 'inventory', cache))
         for host in self.hosts.values():
-            host.vars = combine_vars(host.vars, get_vars_from_inventory_sources(self._loader, self._sources, [host], 'inventory'))
+            host.vars = combine_vars(host.vars, get_vars_from_inventory_sources(self._loader, self._sources, [host], 'inventory', cache))
 
     def parse_source(self, source, cache=False):
         """ Generate or update inventory for the source provided """

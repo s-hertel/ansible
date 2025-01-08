@@ -243,13 +243,13 @@ class VariableManager:
             # internal functions that actually do the work
             def _plugins_inventory(entities):
                 """ merges all entities by inventory source """
-                return get_vars_from_inventory_sources(self._loader, self._inventory._sources, entities, stage)
+                return get_vars_from_inventory_sources(self._loader, self._inventory._sources, entities, stage, cache=use_cache)
 
             def _plugins_play(entities):
                 """ merges all entities adjacent to play """
                 data = {}
                 for path in basedirs:
-                    data = _combine_and_track(data, get_vars_from_path(self._loader, path, entities, stage), "path '%s'" % path)
+                    data = _combine_and_track(data, get_vars_from_path(self._loader, path, entities, stage, cache=use_cache), "path '%s'" % path)
                 return data
 
             # configurable functions that are sortable via config, remember to add to _ALLOWED if expanding this list

@@ -26,11 +26,15 @@ def _prime_vars_loader():
         vars_loader.get(plugin_name)
 
 
-def get_plugin_vars(loader, plugin, path, entities):
+def get_plugin_vars(loader, plugin, path, entities, cache):
 
     data = {}
     try:
-        data = plugin.get_vars(loader, path, entities)
+        try:
+            data = plugin.get_vars(loader, path, entities, cache=cache)
+        except TypeError:
+            # Deprecate plugins that don't accept a cache parameter?
+            data = plugin.get_vars(loader, path, entities)
     except AttributeError:
         if hasattr(plugin, 'get_host_vars') or hasattr(plugin, 'get_group_vars'):
             display.deprecated(
@@ -78,7 +82,8 @@ def _plugin_should_run(plugin, stage):
     return True
 
 
-def get_vars_from_path(loader, path, entities, stage):
+def get_vars_from_path(loader, path, entities, stage, cache=True):
+
     data = {}
     if vars_loader._paths is None:
         # cache has been reset, reload all()
@@ -99,13 +104,13 @@ def get_vars_from_path(loader, path, entities, stage):
         if not _plugin_should_run(plugin, stage):
             continue
 
-        if (new_vars := get_plugin_vars(loader, plugin, path, entities)) != {}:
+        if (new_vars := get_plugin_vars(loader, plugin, path, entities, cache)) != {}:
             data = combine_vars(data, new_vars)
 
     return data
 
 
-def get_vars_from_inventory_sources(loader, sources, entities, stage):
+def get_vars_from_inventory_sources(loader, sources, entities, stage, cache=True):
 
     data = {}
     for path in sources:
@@ -118,7 +123,7 @@ def get_vars_from_inventory_sources(loader, sources, entities, stage):
             # always pass the directory of the inventory source file
             path = os.path.dirname(path)
 
-        if (new_vars := get_vars_from_path(loader, path, entities, stage)) != {}:
+        if (new_vars := get_vars_from_path(loader, path, entities, stage, cache)) != {}:
             data = combine_vars(data, new_vars)
 
     return data

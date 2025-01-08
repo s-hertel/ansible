@@ -971,6 +971,9 @@ class StrategyBase:
                 skip_reason += ', not running handlers for %s' % target_host.name
         elif meta_action == 'refresh_inventory':
             self._inventory.refresh_inventory()
+            for h in self._inventory.hosts.values():
+                self._variable_manager.get_vars(play=iterator._play, host=h, task=task,
+                                                _hosts=self._hosts_cache, _hosts_all=self._hosts_cache_all, use_cache=False)
             self._set_hosts_cache(iterator._play)
             msg = "inventory successfully refreshed"
         elif meta_action == 'clear_facts':

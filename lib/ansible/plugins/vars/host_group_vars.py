@@ -71,8 +71,12 @@ class VarsModule(BaseVarsPlugin):
     REQUIRES_ENABLED = True
     is_stateless = True
 
-    def load_found_files(self, loader, data, found_files):
+    def load_found_files(self, loader, data, found_files, cache=True):
         for found in found_files:
+            if not cache:
+                # Should this be fixed in loader.load_from_file instead?
+                # It currently initializes a cache or doesn't use a cache - does not support updating the cache.
+                loader._FILE_CACHE.pop(found, None)
             new_data = loader.load_from_file(found, cache='all', unsafe=True)
             if new_data:  # ignore empty files
                 data = combine_vars(data, new_data)
@@ -119,20 +123,8 @@ class VarsModule(BaseVarsPlugin):
                     else:
                         raise AnsibleParserError("Supplied entity must be Host or Group, got %s instead" % (type(entity)))
 
-                    if cache:
-                        try:
-                            opath = PATH_CACHE[(realpath_basedir, subdir)]
-                        except KeyError:
-                            opath = PATH_CACHE[(realpath_basedir, subdir)] = os.path.join(realpath_basedir, subdir)
-
-                        if opath in NAK:
-                            continue
-                        key = '%s.%s' % (entity_name, opath)
-                        if key in FOUND:
-                            data = self.load_found_files(loader, data, FOUND[key])
-                            continue
-                    else:
-                        opath = PATH_CACHE[(realpath_basedir, subdir)] = os.path.join(realpath_basedir, subdir)
+                    opath = os.path.join(realpath_basedir, subdir)
+                    key = '%s.%s' % (entity_name, opath)
 
                     if os.path.isdir(opath):
                         self._display.debug("\tprocessing dir %s" % opath)
@@ -145,7 +137,7 @@ class VarsModule(BaseVarsPlugin):
                         # cache non-directory matches
                         NAK.add(opath)
 
-                    data = self.load_found_files(loader, data, found_files)
+                    data = self.load_found_files(loader, data, found_files, cache=cache)
 
                 except Exception as e:
                     raise AnsibleParserError(to_native(e))
