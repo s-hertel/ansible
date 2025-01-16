@@ -1,0 +1,92 @@
+- environment:
+    ANSIBLE_NOCOLOR: True
+    ANSIBLE_FORCE_COLOR: false
+  vars:
+    test_dir: "{{ [remote_tmp_dir, 'requires_ansible_' ~ subcommand] | path_join }}"
+    dest1: "{{ [test_dir, 'collections'] | path_join }}"
+    dest2: "{{ [test_dir, 'other_collections'] | path_join }}"
+    cmd: "ansible-galaxy collection {{ subcommand }}{{ (subcommand == 'install') | ternary(' --force', '')}}"
+    no_valid_version: >-
+      ERROR! ns_requires_ansible\.name_requires_ansible:.* \(type .*\) does not support ansible-core .*
+    failed_install: |
+      ERROR! Failed to resolve the requested dependencies map\. Could not satisfy the following requirements:
+      \* ns_requires_ansible\.name_requires_ansible:.* \(direct request\)
+  block:
+  # TODO: Once the test server is updated, this should fail as expected.
+  - name: "{{ subcommand }} incompatible collection"
+    command: "{{ cmd }} -p {{ dest1 }} ns_requires_ansible.name_requires_ansible"
+    # register: expected_fail
+    # failed_when: expected_fail is success
+
+  # - assert:
+  #     that:
+  #       - expected_fail.stderr is search(no_valid_version)
+  #       - expected_fail.stderr is search(failed_install, multiline=True)
+
+  - name: "{{ subcommand }} collection and allow mismatched version"
+    command: ansible-galaxy collection download -p {{ dest1 }} ns_requires_ansible.name_requires_ansible
+    environment:
+      ANSIBLE_COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH: ignore
+
+  - name: "{{ subcommand }} incompatible tarfile"
+    command: "{{ cmd }} -p {{ dest2 }} {{ dest1 }}/ns_requires_ansible-name_requires_ansible-1.0.0.tar.gz"
+    register: expected_fail
+    failed_when: expected_fail is success
+
+  - assert:
+      that:
+        - expected_fail.stderr is search(no_valid_version)
+        - expected_fail.stderr is search(failed_install, multiline=True)
+
+  - name: "{{ subcommand }} tarfile and allow mismatched version"
+    command: "{{ cmd }} -p {{ dest2 }} {{ dest1 }}/ns_requires_ansible-name_requires_ansible-1.0.0.tar.gz"
+    environment:
+      ANSIBLE_COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH: ignore
+
+  - name: setup - {{ subcommand }} build directory
+    block:
+      - name: setup - init collection build directory
+        command: ansible-galaxy collection init ns_requires_ansible.name_requires_ansible --init-path {{ dest2 }}/ansible_collections
+
+      - name: setup - add  requires_ansible in the runtime file
+        shell: >-
+          echo 'requires_ansible: "<=2.18"' > {{ dest2 }}/ansible_collections/ns_requires_ansible/name_requires_ansible/meta/runtime.yml
+    when: subcommand == 'download'
+
+  - name: "{{ subcommand }} incompatible directory"
+    command: "{{ cmd }} -p {{ dest1 }} {{ dest2 }}/ansible_collections/ns_requires_ansible/name_requires_ansible"
+    register: expected_fail
+    failed_when: expected_fail is success
+
+  - assert:
+      that:
+        - expected_fail.stderr is search(no_valid_version)
+        - expected_fail.stderr is search(failed_install, multiline=True)
+
+  - name: "{{ subcommand }} directory and allow mismatched version"
+    command: "{{ cmd }} -p {{ dest1 }} {{ dest2 }}/ansible_collections/ns_requires_ansible/name_requires_ansible"
+    environment:
+      ANSIBLE_COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH: ignore
+
+  - name: setup - {{ subcommand }} remove requires_ansible metadata
+    file:
+      path: "{{ dest2 }}/ansible_collections/ns_requires_ansible/name_requires_ansible/meta/runtime.yml"
+      state: absent
+
+  - name: "{{ subcommand }} directory with undocumented, required requires_ansible metadata"
+    command: "{{ cmd }} -p {{ dest1 }} {{ dest2 }}/ansible_collections/ns_requires_ansible/name_requires_ansible"
+    register: expected_fail
+    failed_when: expected_fail is success
+    environment:
+      ANSIBLE_COLLECTIONS_ON_UNDOCUMENTED_ANSIBLE_VERSION: warning
+
+  - assert:
+      that:
+        - expected_fail.stderr is search(no_valid_version)
+        - expected_fail.stderr is search(failed_install, multiline=True)
+
+  - name: "{{ subcommand }} directory with undocumented requires_ansible metadata"
+    command: "{{ cmd }} -p {{ dest1 }} {{ dest2 }}/ansible_collections/ns_requires_ansible/name_requires_ansible"
+
+  always:
+  - file: path={{ test_dir }} state=absent

@@ -31,8 +31,12 @@ from ansible.galaxy.api import GalaxyAPI
 from ansible.galaxy.collection import HAS_PACKAGING, PkgReq
 from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
 from ansible.module_utils.common.arg_spec import ArgumentSpecValidator
+from ansible.module_utils.ansible_release import __version__ as ansible_version
 from ansible.utils.collection_loader import AnsibleCollectionRef
 from ansible.utils.display import Display
+from ansible.utils.version import SemanticVersion, LooseVersion
+
+import ansible.constants as C
 
 
 _ALLOW_CONCRETE_POINTER_IN_SOURCE = False  # NOTE: This is a feature flag
@@ -631,3 +635,54 @@ class Candidate(
 
         signatures = self.src.get_collection_signatures(self.namespace, self.name, self.ver)
         return self.__class__(self.fqcn, self.ver, self.src, self.type, frozenset([*self.signatures, *signatures]))
+
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, order=True)
+class AnsibleRequirement:
+    version: str | None
+    is_virtual: bool = True
+    canonical_package_id: str = "Ansible"
+    fqcn: str = "Ansible"
+
+    @classmethod
+    def from_collection(cls, concrete_art_mgr, candidate):
+        if candidate.is_virtual:
+            return AnsibleCandidate()
+        if candidate.is_concrete_artifact:
+            requires_ansible = concrete_art_mgr.get_requires_ansible(candidate)
+        else:
+            requires_ansible = (candidate.src.requires_ansible.get(candidate.fqcn) or {}).get(candidate.ver)
+            if candidate.fqcn in candidate.src.requires_ansible:
+                # Note: if a galaxy server returns requires_ansible metadata and its inaccurate, the error the user sees will appear to not match reality,
+                # or worse, an incompatible collection will be installed/downloaded without indication. Guard against that here.
+                expected = requires_ansible
+                actual = concrete_art_mgr.get_requires_ansible(candidate)
+                if expected != actual:
+                    raise ValueError(f"{candidate} requires_ansible '{actual}' does not match the value reported by the GalaxyAPI {candidate.src!r}: '{expected}'")
+
+        if requires_ansible is None and C.COLLECTIONS_ON_UNDOCUMENTED_ANSIBLE_VERSION != 'ignore':
+            if candidate.ver.startswith(("!", "<", ">", "*")):
+                # Note: this is not necessarily an error, just eliminates this version. It's fatal for concrete artifacts, since there is 1 version.
+                # Should this be permitted if C.COLLECTIONS_ON_UNDOCUMENTED_ANSIBLE_VERSION == 'warning' and there are no other versions...?
+                raise ValueError(f"requires_ansible is not documented by {candidate}")
+            display.warning(f"requires_ansible is not documented by {candidate}")  # Note: not doing this for Galaxy servers because too much spam
+        elif requires_ansible is not None:
+            # FIXME: raise ValueError if it's invalid
+            pass
+
+        if C.COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH == 'ignore':
+            # an internal ansible-galaxy placeholder value to skip version comparison
+            requires_ansible = "*"
+
+        return cls(requires_ansible or "*")
+
+
+@dataclass(frozen=True, order=True)
+class AnsibleCandidate:
+    version: str = SemanticVersion.from_loose_version(LooseVersion(ansible_version)).vstring
+    is_virtual: bool = True
+    canonical_package_id: str = "Ansible"
+    fqcn: str = "Ansible"

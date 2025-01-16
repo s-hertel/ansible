@@ -1,0 +1,18 @@
+bugfixes:
+- >-
+  ``ansible-galaxy install`` and ``ansible-galaxy collection install|download` - now consider
+  the ``COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH`` configuration.
+  Collections which will cause a warning/error at load time are no longer installed/downloaded.
+  (https://github.com/ansible/ansible/issues/78539)
+minor_changes:
+- >-
+  Added a new configuration option ``COLLECTIONS_ON_UNDOCUMENTED_ANSIBLE_VERSION``.
+  Setting this to "warning" or "error" will give a warning/error at load time, and
+  ``ansible-galaxy`` will avoid installing or downloading collections without this metadata.
+deprecated_features:
+- >-
+  If the GalaxyAPI endpoint /v3/collections/<namespace>/<collection_name>/versions/ does not return
+  the ``requires_ansible`` metadata, ``ansible-galaxy`` may install or download collections which
+  are incompatible with the current version of ``ansible-core``.
+  Support for this is deprecated. Servers based on GalaxyNG can resolve this by upgrading to 4.3.0
+  or later.

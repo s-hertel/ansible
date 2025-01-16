@@ -11,6 +11,8 @@
     --no-deps
   args:
     chdir: '{{ galaxy_dir }}/download'
+  environment:
+    ANSIBLE_COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH: ignore
   register: download_collection
 
 - name: check that the amazon.aws collection was downloaded
@@ -34,6 +36,8 @@
   command: 'ansible-galaxy collection install -r requirements.yml --no-deps'
   args:
     chdir: '{{ galaxy_dir }}/download/collections/'
+  environment:
+    ANSIBLE_COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH: ignore
 
 - name: list installed collections
   command: 'ansible-galaxy collection list'

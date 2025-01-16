@@ -1439,7 +1439,15 @@ def _on_collection_load_handler(collection_name, collection_path):
     collection_meta = _get_collection_metadata(collection_name)
 
     try:
-        if not _does_collection_support_ansible_version(collection_meta.get('requires_ansible', ''), ansible_version):
+        requires_ansible = collection_meta.get('requires_ansible', '')
+        if not requires_ansible and collection_name not in ('ansible.builtin', 'ansible.legacy'):
+            unknown_behavior = C.config.get_config_value('COLLECTIONS_ON_UNDOCUMENTED_ANSIBLE_VERSION')
+            message = f"Collection {collection_name} does not declare support for Ansible version {ansible_version}"
+            if unknown_behavior == 'warning':
+                display.warning(message)
+            elif unknown_behavior == 'error':
+                raise AnsibleCollectionUnsupportedVersionError(message)
+        elif not _does_collection_support_ansible_version(requires_ansible, ansible_version):
             mismatch_behavior = C.config.get_config_value('COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH')
             message = 'Collection {0} does not support Ansible version {1}'.format(collection_name, ansible_version)
             if mismatch_behavior == 'warning':

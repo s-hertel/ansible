@@ -20,6 +20,8 @@ from ansible.galaxy.api import GalaxyAPI, GalaxyError
 from ansible.module_utils.common.text.converters import to_text
 from ansible.utils.display import Display
 
+import ansible.constants as C
+
 
 display = Display()
 

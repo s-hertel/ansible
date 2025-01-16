@@ -121,7 +121,7 @@ else:
     HAS_RESOLVELIB = True
 
 from ansible.galaxy.dependency_resolution.dataclasses import (
-    Candidate, Requirement, _is_installed_collection_dir,
+    AnsibleCandidate, AnsibleRequirement, Candidate, Requirement, _is_installed_collection_dir,
 )
 from ansible.galaxy.dependency_resolution.versioning import meets_requirements
 from ansible.plugins.loader import get_all_plugin_loaders
@@ -748,6 +748,7 @@ def install_collections(
     keyring_exists = artifacts_manager.keyring is not None
     with _display_progress("Starting collection install process"):
         for fqcn, concrete_coll_pin in dependency_map.items():
+            # display.display(f"Got concrete col {concrete_coll_pin!s} which is virtual: {concrete_coll_pin.is_virtual} and type {concrete_coll_pin.type}")
             if concrete_coll_pin.is_virtual:
                 display.vvvv(
                     "Encountered {coll!s}, skipping.".
@@ -1874,7 +1875,21 @@ def _resolve_depenency_map(
                 format(parent=req_inf.parent),
             )
             for req_inf in dep_exc.causes
+            if not isinstance(req_inf.requirement, (AnsibleRequirement, AnsibleCandidate))
         )
+
+        requires_ansible_causes = (
+            # FIXME Is it possible to determine if the parent of a parent is a direct or indirect request?
+            # dep_exc.causes[*].parent does not have a parent attribute, even when it is not None.
+            '* {req.fqcn!s}:{req.ver!s} requires ansible-core {requires_ansible}'.format(
+                req=req_inf.parent,
+                requires_ansible=req_inf.requirement.version,
+            )
+            for req_inf in dep_exc.causes
+            if isinstance(req_inf.requirement, (AnsibleRequirement, AnsibleCandidate))
+            and not req_inf.parent.is_virtual
+        )
+
         error_msg_lines = list(chain(
             (
                 'Failed to resolve the requested '
@@ -1882,6 +1897,7 @@ def _resolve_depenency_map(
                 'requirements:',
             ),
             conflict_causes,
+            requires_ansible_causes,
         ))
         error_msg_lines.append(pre_release_hint)
         raise AnsibleError('\n'.join(error_msg_lines)) from dep_exc

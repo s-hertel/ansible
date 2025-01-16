@@ -17,6 +17,8 @@ if t.TYPE_CHECKING:
 
 from ansible.galaxy.collection.gpg import get_signature_from_source
 from ansible.galaxy.dependency_resolution.dataclasses import (
+    AnsibleCandidate,
+    AnsibleRequirement,
     Candidate,
     Requirement,
 )
@@ -85,6 +87,11 @@ class CollectionDependencyProviderBase(AbstractProvider):
             Requirement.from_requirement_dict,
             art_mgr=concrete_artifacts_manager,
         )
+        self._get_ansible_requirement = functools.partial(
+            AnsibleRequirement.from_collection,
+            concrete_artifacts_manager,
+        )
+        self._ansible_candidate = AnsibleCandidate()
         self._preferred_candidates = set(preferred_candidates or ())
         self._with_deps = with_deps
         self._with_pre_releases = with_pre_releases
@@ -237,6 +244,13 @@ class CollectionDependencyProviderBase(AbstractProvider):
         first_req = requirements[0]
         fqcn = first_req.fqcn
         # The fqcn is guaranteed to be the same
+
+        if isinstance(first_req, (AnsibleRequirement, AnsibleCandidate)):
+            if not all(meets_requirements(version=self._ansible_candidate.version, requirements=req.version) for req in requirements):
+                return []
+            else:
+                return [self._ansible_candidate]
+
         version_req = "A SemVer-compliant version or '*' is required. See https://semver.org to learn how to compose it correctly. "
         version_req += "This is an issue with the collection."
 
@@ -432,6 +446,9 @@ class CollectionDependencyProviderBase(AbstractProvider):
         :returns: A collection of requirements that `candidate` \
                   specifies as its dependencies.
         """
+        if isinstance(candidate, (AnsibleRequirement, AnsibleCandidate)):
+            return []
+
         # FIXME: If there's several galaxy servers set, there may be a
         # FIXME: situation when the metadata of the same collection
         # FIXME: differs. So how do we resolve this case? Priority?
@@ -450,13 +467,12 @@ class CollectionDependencyProviderBase(AbstractProvider):
         #
         # NOTE: Virtual candidates should always return dependencies
         # NOTE: because they are ephemeral and non-installable.
-        if not self._with_deps and not candidate.is_virtual:
-            return []
-
-        return [
+        yield from [
             self._make_req_from_dict({'name': dep_name, 'version': dep_req})
             for dep_name, dep_req in req_map.items()
+            if self._with_deps or candidate.is_virtual
         ]
+        yield self._get_ansible_requirement(candidate)
 
 
 # Classes to handle resolvelib API changes between minor versions for 0.X

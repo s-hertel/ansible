@@ -308,6 +308,8 @@ class GalaxyAPI:
         if not no_cache:
             self._cache = _load_cache(self._b_cache_path)
 
+        self.requires_ansible = {}
+
         display.debug('Validate TLS certificates for %s: %s' % (self.api_server, self.validate_certs))
 
     def __str__(self):
@@ -887,7 +889,19 @@ class GalaxyAPI:
 
         versions = []
         while True:
-            versions += [v['version'] for v in data[results_key]]
+            for v in data[results_key]:
+                # TODO: unindent once v2, which is deprecated, is removed
+                if "v3" in self.available_api_versions:
+                    if "requires_ansible" not in v:
+                        display.deprecated(
+                            f"The GalaxyAPI v3 endpoint {versions_url} did not return the expected requires_ansible metadata. "
+                            "As a result, collections installed or downloaded from this server may not be compatible with ansible-core. "
+                            "If the server is based on GalaxyNG, please upgrade to GalaxyNG 4.3.0 or later.",
+                            version="2.21",
+                        )
+                    else:
+                        self.requires_ansible.setdefault(f"{namespace}.{name}", {})[v["version"]] = v["requires_ansible"]
+                versions.append(v["version"])
 
             next_link = data
             for path in pagination_path:
