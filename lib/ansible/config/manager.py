@@ -347,7 +347,10 @@ class ConfigManager:
 
         if self._config_file is None:
             # set config using ini
-            self._config_file = find_ini_config_file(self.WARNINGS)
+            # if a world-writable config file is an error in the CLI base,
+            # giving a warning here is redundant
+            _warnings = None if self.get_config_value("NO_WORLD_WRITABLE_CONFIG") else self.WARNINGS
+            self._config_file = find_ini_config_file(_warnings)
 
         # consume configuration
         if self._config_file:

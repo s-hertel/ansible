@@ -1,6 +1,14 @@
 # Copyright (c) 2017 Ansible Project
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 ---
+NO_WORLD_WRITABLE_CONFIG:
+  name: Disallow using an ansible.cfg in a world writable directory.
+  description:
+    - Control whether an ansible.cfg in a world writable directory is an error.
+  env:
+    - name: ANSIBLE_NO_WORLD_WRITABLE_CONFIG
+  type: bool
+  default: False
 _ANSIBALLZ_COVERAGE_CONFIG:
   name: Configure the AnsiballZ code coverage extension
   description:

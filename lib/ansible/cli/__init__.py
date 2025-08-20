@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import locale
 import os
+import stat
 import sys
 
 # We overload the ``ansible`` adhoc command to provide the functionality for
@@ -153,6 +154,32 @@ class CLI(ABC):
         self.callback = callback
 
         self.show_devel_warning()
+        self.show_world_writable_directory_error()
+
+    def show_world_writable_directory_error(self) -> None:
+        if not C.config.get_config_value("NO_WORLD_WRITABLE_CONFIG"):
+            return
+        check_perms = None
+        cwd = os.getcwd()
+        ac = os.path.join(cwd, 'ansible.cfg')
+        if C.config._config_file is None and os.path.exists(ac):
+            check_perms = os.stat(cwd)
+            err_msg = (
+                f"Ansible is running in a world writable directory ({cwd}) "
+                "and the ansible.cfg it contains which will be ignored. "
+            )
+        elif C.config._config_file is not None:
+            ac_dir = os.path.dirname(C.config._config_file)
+            err_msg = f"The configured ansible.cfg is in a world writable directory ({ac_dir}). "
+            check_perms = os.stat(ac_dir)
+        if check_perms is not None and check_perms.st_mode & stat.S_IWOTH:
+            raise AnsibleError(
+                err_msg +
+                "This error can be changed to a warning by unsetting the environment "
+                "variable ANSIBLE_NO_WORLD_WRITABLE_CONFIG or setting it to False. "
+                "For more information see "
+                "https://docs.ansible.com/ansible/devel/reference_appendices/config.html#cfg-in-world-writable-dir."
+            )
 
     def show_devel_warning(self) -> None:
         if C.DEVEL_WARNING and __version__.endswith('dev0'):

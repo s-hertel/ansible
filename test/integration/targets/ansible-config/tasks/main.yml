@@ -155,3 +155,33 @@
         that:
           - config_keys | selectattr('name',  'match', '_.*') | length > 0
           - config_keys | selectattr('name', 'match', '_Z_.*') | length == 0
+
+- name: Create a world-writable directory
+  file:
+    dest: /tmp/public
+    mode: 0777
+    state: directory
+
+- name: Create an ansible.cfg in world writable directory
+  file:
+    dest: /tmp/public/ansible.cfg
+    state: touch
+
+- name: Execute ansible in world writable directory
+  shell: "{{ item }}; ansible localhost -m ping"
+  args:
+    chdir: /tmp/public
+  environment:
+    ANSIBLE_NO_WORLD_WRITABLE_CONFIG: True
+    ANSIBLE_NOCOLOR: True
+    ANSIBLE_FORCE_COLOR: False
+  register: test_error
+  ignore_errors: True
+  loop:
+    - unset ANSIBLE_CONFIG
+    - export ANSIBLE_CONFIG=/tmp/public/ansible.cfg
+
+- assert:
+    that:
+      - test_error.results | select("failed") | length == 2
+      - test_error.results | map(attribute="stderr") | select("search", "in a world writable directory") | length == 2
