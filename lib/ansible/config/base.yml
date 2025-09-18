@@ -1794,13 +1794,20 @@ MAX_FILE_SIZE_FOR_DIFF:
 NETWORK_GROUP_MODULES:
   name: Network module families
   default: [eos, nxos, ios, iosxr, junos, enos, ce, vyos, sros, dellos9, dellos10, dellos6, asa, aruba, aireos, bigip, ironware, onyx, netconf, exos, voss, slxos]
-  description: 'TODO: write it'
+  description:
+    - A list of module prefixes that correlate to an action plugin.
+    - If no action plugin matching the task action is found, and the action begins with
+      a prefix in the list, the corresponding action plugin is used to execute the module.
   env:
   - name: ANSIBLE_NETWORK_GROUP_MODULES
   ini:
   - {key: network_group_modules, section: defaults}
   type: list
   yaml: {key: defaults.network_group_modules}
+  # deprecated:
+  #   why: This option has no effect.
+  #   alternatives: Define an action_plugin for the module in the collection's plugin_routing.
+  #   version: "2.24"
 INJECT_FACTS_AS_VARS:
   default: True
   description:

@@ -1141,6 +1141,15 @@ class TaskExecutor:
         elif self._shared_loader_obj.action_loader.has_plugin(self._task.action, collection_list=collections):
             handler_name = self._task.action
         elif module_prefix in C.NETWORK_GROUP_MODULES and self._shared_loader_obj.action_loader.has_plugin(network_action, collection_list=collections):
+            display.deprecated(
+                f"There is no action plugin named {self._task.action}, "
+                f"falling back to inferred network action {network_action}. "
+                "In the future, this feature will be removed, and the normal "
+                "action plugin will be used. "
+                "To fix this, define an action_plugin for the module in the "
+                "plugin_routing of the collection's meta/runtime.yml file.",
+                version="2.23"
+            )
             handler_name = network_action
             display.vvvv("Using network group action {handler} for {action}".format(handler=handler_name,
                                                                                     action=self._task.action),

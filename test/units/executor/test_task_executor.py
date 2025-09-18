@@ -27,6 +27,7 @@ from ansible.plugins.loader import action_loader, lookup_loader
 
 from collections import namedtuple
 from units.mock.loader import DictDataLoader
+from units.test_utils.controller.display import emits_warnings
 
 get_with_context_result = namedtuple('get_with_context_result', ['object', 'plugin_load_context'])
 
@@ -230,7 +231,8 @@ class TestTaskExecutor(unittest.TestCase):
         te._connection = MagicMock()
 
         with patch('ansible.executor.task_executor.start_connection'):
-            handler = te._get_action_handler(mock_templar)
+            with emits_warnings(deprecation_pattern="There is no action plugin named namespace.netconf_suffix"):
+                handler = te._get_action_handler(mock_templar)
 
         self.assertIs(mock.sentinel.handler, handler)
         action_loader.has_plugin.assert_has_calls([mock.call(action, collection_list=te._task.collections),  # called twice
