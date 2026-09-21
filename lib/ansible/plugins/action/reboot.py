@@ -335,6 +335,11 @@ class ActionModule(ActionBase):
         shutdown_command_args = self.get_shutdown_command_args(distribution)
         reboot_command = '{0} {1}'.format(shutdown_command, shutdown_command_args)
 
+        reconnection_retries = None
+        if self._connection.has_option('reconnection_retries') and (reconnection_retries := self._connection.get_option('reconnection_retries')):
+            display.debug("Setting reconnection_retries to 0 before rebooting")
+            self._connection.set_option('reconnection_retries', 0)
+
         try:
             display.vvv("{action}: rebooting server...".format(action=self._task.action))
             display.debug("{action}: rebooting server with command '{command}'".format(action=self._task.action, command=reboot_command))
@@ -343,6 +348,10 @@ class ActionModule(ActionBase):
             # If the connection is closed too quickly due to the system being shutdown, carry on
             display.debug('{action}: AnsibleConnectionFailure caught and handled: {error}'.format(action=self._task.action, error=to_text(e)))
             reboot_result['rc'] = 0
+        finally:
+            if reconnection_retries:
+                display.debug("Restoring reconnection_retries")
+                self._connection.set_option('reconnection_retries', reconnection_retries)
 
         result['start'] = datetime.now(timezone.utc)
 

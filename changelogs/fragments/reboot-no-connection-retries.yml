@@ -1,0 +1,2 @@
+bugfixes:
+  - reboot - retryable connection errors no longer cause the ``reboot_command`` to run multiple times. Connection plugins that define the option ``reconnection_retries`` temporarily set retries to 0 before executing the ``reboot_command`` and restore the original value before executing the ``boot_time_command`` and ``test_command`` options.

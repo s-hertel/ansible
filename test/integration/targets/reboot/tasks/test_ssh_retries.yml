@@ -1,0 +1,9 @@
+- name: Test reboot_command runs once
+  reboot:
+    # reboot successfully, but take too long and fail mid ssh process with rc 255
+    # this error is eventually a non-fatal debug msg regardless of ssh retries, but it shouldn't run multiple times
+    reboot_command: reboot && sleep 5
+  vars:
+    ansible_ssh_retries: 5
+  # fail if the task retries the command
+  timeout: 20
